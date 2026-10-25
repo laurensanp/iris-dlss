@@ -9,6 +9,7 @@ import com.mojang.renderpearl.api.buffers.GpuBuffer;
 import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.renderpearl.api.commands.CommandEncoder;
 import com.mojang.renderpearl.api.commands.RenderPass;
+import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
 import com.mojang.renderpearl.api.pipeline.BindGroupLayout;
 import com.mojang.renderpearl.api.pipeline.ColorTargetState;
 import com.mojang.renderpearl.api.pipeline.CompiledRenderPipeline;
@@ -53,10 +54,14 @@ public final class DlssUpscaler {
 
     // Camera-only motion vectors: reproject each pixel's position with last frame's camera.
     // Values are render-resolution pixels pointing from the current to the previous position.
+    // DepthSampler is the world's depth (saved before the hand pass clears it), HandSampler the final
+    // depth, where everything but the first-person hand is the clear value. Hand pixels get no
+    // motion; DLSS and frame generation get the combined depth.
     private static final String MOTION_SHADER = """
         #version 330
         #extension GL_ARB_separate_shader_objects : require
         uniform sampler2D DepthSampler;
+        uniform sampler2D HandSampler;
         layout(std140) uniform MotionInfo {
             mat4 InvCurrent;
             mat4 Previous;
@@ -65,14 +70,23 @@ public final class DlssUpscaler {
             vec2 RenderSize;
             int ZeroToOne;
             int DepthInverted;
+            int HandInDepth;
         };
         layout(location = 0) out vec2 outMotion;
+        layout(location = 1) out float outDepth;
         bool finite(vec2 v) {
             return !any(isnan(v)) && !any(isinf(v));
         }
         void main() {
             ivec2 pixel = ivec2(gl_FragCoord.xy);
             float depth = texelFetch(DepthSampler, pixel, 0).r;
+            float handDepth = texelFetch(HandSampler, pixel, 0).r;
+            bool hand = HandInDepth != 0 && (DepthInverted != 0 ? handDepth > 0.0 : handDepth < 1.0);
+            outDepth = hand ? handDepth : depth;
+            if (hand) {
+                outMotion = vec2(0.0);
+                return;
+            }
             vec2 uv = (vec2(pixel) + 0.5) / RenderSize;
             // Sky / far plane (and Voxy LODs drawn past it): no parallax, rotation-only reprojection.
             bool far = DepthInverted != 0 ? depth <= 1e-6 : depth >= 1.0 - 1e-6;
@@ -153,15 +167,20 @@ public final class DlssUpscaler {
 
     private static final RenderPipeline MOTION_PIPELINE = fullscreenPipeline("motion_vectors",
         BindGroupLayout.builder().withUniform("DepthSampler", UniformType.COMBINED_IMAGE_SAMPLER)
+            .withUniform("HandSampler", UniformType.COMBINED_IMAGE_SAMPLER)
             .withUniform("MotionInfo", UniformType.UNIFORM_BUFFER).build(),
-        new ColorTargetState(Optional.empty(), GpuFormat.RG16_FLOAT, ColorTargetState.WRITE_ALL));
+        new ColorTargetState(Optional.empty(), GpuFormat.RG16_FLOAT, ColorTargetState.WRITE_ALL),
+        new ColorTargetState(Optional.empty(), GpuFormat.R32_FLOAT, ColorTargetState.WRITE_ALL));
     private static final RenderPipeline SHARPEN_PIPELINE = fullscreenPipeline("sharpen",
         BindGroupLayout.builder().withUniform("ColorSampler", UniformType.COMBINED_IMAGE_SAMPLER)
             .withUniform("SharpenInfo", UniformType.UNIFORM_BUFFER).build(),
         ColorTargetState.DEFAULT);
     private static final int MOTION_INFO_SIZE = new Std140SizeCalculator().putMat4f().putMat4f().putVec3().putFloat()
-        .putVec2().putInt().putInt().get();
+        .putVec2().putInt().putInt().putInt().get();
     private static final int SHARPEN_INFO_SIZE = new Std140SizeCalculator().putFloat().putIVec2().get();
+
+    /** Dev option -Diris-dlss.debugLog=true: camera inputs of every upscaled frame. */
+    private static final boolean DEBUG_LOG = Boolean.getBoolean("iris-dlss.debugLog");
 
     private static boolean initialized;
     private static boolean failed;
@@ -181,8 +200,15 @@ public final class DlssUpscaler {
     private static GpuTextureView motionView;
     private static GpuTexture outputTexture;
     private static GpuTextureView outputView;
-    /** Depth of the last upscaled frame (the low-resolution main target's). */
-    private static GpuTextureView lastDepthView;
+    /** The world's depth, copied before the hand pass clears the main depth buffer. */
+    private static GpuTexture worldDepthTexture;
+    private static GpuTextureView worldDepthView;
+    private static boolean worldDepthSaved;
+    /** The main depth buffer holds the hand (drawn after clearing it) instead of the world. */
+    private static boolean handInDepth;
+    /** World depth with the hand on top (R32F), the depth DLSS and frame generation see. */
+    private static GpuTexture combinedDepthTexture;
+    private static GpuTextureView combinedDepthView;
 
     private static int jitterIndex;
     private static float jitterX;
@@ -207,16 +233,18 @@ public final class DlssUpscaler {
     private DlssUpscaler() {
     }
 
-    private static RenderPipeline fullscreenPipeline(String name, BindGroupLayout layout, ColorTargetState target) {
-        return RenderPipeline.builder()
+    private static RenderPipeline fullscreenPipeline(String name, BindGroupLayout layout, ColorTargetState... targets) {
+        RenderPipeline.Builder builder = RenderPipeline.builder()
             .withLocation(Identifier.fromNamespaceAndPath(NAMESPACE, "pipeline/" + name))
             .withVertexShader(Identifier.fromNamespaceAndPath(NAMESPACE, "fullscreen"))
             .withFragmentShader(Identifier.fromNamespaceAndPath(NAMESPACE, name))
             .withBindGroupLayout(layout)
-            .withColorTargetState(target)
             .withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
-            .withCull(false)
-            .build();
+            .withCull(false);
+        for (int i = 0; i < targets.length; i++) {
+            builder.withColorTargetState(i, targets[i]);
+        }
+        return builder.build();
     }
 
     public static boolean isActive() {
@@ -241,10 +269,10 @@ public final class DlssUpscaler {
 
     /** Frame generation inputs of the last frame: depth, motion vectors, hudless output; or null. */
     public static long[] frameGenImages() {
-        if (outputView == null || lastDepthView == null || lastDepthView.isClosed()) {
+        if (outputView == null) {
             return null;
         }
-        return VulkanAccess.concat(VulkanAccess.describe(lastDepthView), VulkanAccess.describe(motionView),
+        return VulkanAccess.concat(VulkanAccess.describe(combinedDepthView), VulkanAccess.describe(motionView),
             VulkanAccess.describe(outputView));
     }
 
@@ -347,6 +375,14 @@ public final class DlssUpscaler {
                 GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_SRC,
                 GpuFormat.RG16_FLOAT, renderWidth, renderHeight, 1, 1);
             motionView = RenderSystem.getDevice().createTextureView(motionTexture);
+            worldDepthTexture = RenderSystem.getDevice().createTexture("DLSS world depth",
+                GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_TEXTURE_BINDING, GpuFormat.D32_FLOAT, renderWidth,
+                renderHeight, 1, 1);
+            worldDepthView = RenderSystem.getDevice().createTextureView(worldDepthTexture);
+            combinedDepthTexture = RenderSystem.getDevice().createTexture("DLSS depth",
+                GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_SRC,
+                GpuFormat.R32_FLOAT, renderWidth, renderHeight, 1, 1);
+            combinedDepthView = RenderSystem.getDevice().createTextureView(combinedDepthTexture);
             outputTexture = VulkanAccess.createStorageTexture("DLSS output", GpuTexture.USAGE_RENDER_ATTACHMENT
                 | GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_SRC | GpuTexture.USAGE_COPY_DST,
                 GpuFormat.RGBA8_UNORM, outputWidth, outputHeight);
@@ -377,13 +413,35 @@ public final class DlssUpscaler {
         DlssNative.destroyResources();
         motionView.close();
         motionTexture.close();
+        worldDepthView.close();
+        worldDepthTexture.close();
+        combinedDepthView.close();
+        combinedDepthTexture.close();
+        worldDepthView = null;
+        worldDepthTexture = null;
+        combinedDepthView = null;
+        combinedDepthTexture = null;
         outputView.close();
         outputTexture.close();
         motionView = null;
         motionTexture = null;
         outputView = null;
         outputTexture = null;
-        lastDepthView = null;
+    }
+
+    /**
+     * GameRenderer.render3dHud, before the hand: keep the world's depth. Without post effects the hand
+     * pass clears the main depth buffer and draws only the hand into it.
+     */
+    public static void saveWorldDepth(RenderTarget low, boolean handInOwnTarget) {
+        if (!isActive() || worldDepthTexture == null || low.width != renderWidth || low.height != renderHeight
+            || low.getDepthTexture() == null) {
+            return;
+        }
+        RenderSystem.getDevice().createCommandEncoder().copyTextureToTexture(low.getDepthTexture(), worldDepthTexture,
+            0, 0, 0, 0, 0, renderWidth, renderHeight);
+        worldDepthSaved = true;
+        handInDepth = !handInOwnTarget;
     }
 
     /** The game's Vulkan device is being destroyed (it already waited for the GPU). */
@@ -472,7 +530,24 @@ public final class DlssUpscaler {
             previousPosition = currentPosition;
         }
 
+        if (DEBUG_LOG) {
+            Vec3 d = currentPosition.subtract(previousPosition);
+            IrisDlss.LOGGER.info("Iris DLSS debug: delta {} {} {} jitter {} {} reset {} proj m00 {} m11 {} m20 {} m21 {} "
+                + "view m00 {} m02 {} prev m00 {} m20 {}", d.x, d.y, d.z, jitterX, jitterY, resetHistory,
+                currentProjection.m00(), currentProjection.m11(), currentProjection.m20(), currentProjection.m21(),
+                currentView.m00(), currentView.m02(), previousViewProjection.m00(), previousViewProjection.m20());
+            IrisDlss.LOGGER.info("Iris DLSS debug: projectionForDepth {} view {} zeroToOne {} inverted {}",
+                java.util.Arrays.toString(DepthConvention.projectionForDepth(currentProjection).get(new float[16])),
+                java.util.Arrays.toString(currentView.get(new float[16])), DepthConvention.zeroToOne(), depthInverted);
+        }
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+        if (!worldDepthSaved) {
+            // No hand pass this frame: the main depth buffer still is the world's.
+            encoder.copyTextureToTexture(low.getDepthTexture(), worldDepthTexture, 0, 0, 0, 0, 0, renderWidth,
+                renderHeight);
+            handInDepth = false;
+        }
+        worldDepthSaved = false;
         GpuSampler nearest = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
         int alignment = RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment();
         Vec3 delta = currentPosition.subtract(previousPosition);
@@ -486,25 +561,30 @@ public final class DlssUpscaler {
                 .putVec2(renderWidth, renderHeight)
                 .putInt(DepthConvention.zeroToOne() ? 1 : 0)
                 .putInt(depthInverted ? 1 : 0)
+                .putInt(handInDepth ? 1 : 0)
                 .get();
             motionInfo = encoder.transientMemory().uploadGpu(data, alignment, GpuBuffer.USAGE_UNIFORM);
         }
-        try (RenderPass pass = encoder.createRenderPass(() -> "DLSS motion vectors", motionView, Optional.empty())) {
+        RenderPassDescriptor motionPass = RenderPassDescriptor.builder(() -> "DLSS motion vectors")
+            .withColorAttachment(motionView, Optional.empty())
+            .withColorAttachment(combinedDepthView, Optional.empty())
+            .build();
+        try (RenderPass pass = encoder.createRenderPass(motionPass)) {
             pass.setPipeline(motionPipeline);
-            pass.setUniform("DepthSampler", lowDepth, nearest);
+            pass.setUniform("DepthSampler", worldDepthView, nearest);
+            pass.setUniform("HandSampler", lowDepth, nearest);
             pass.setUniform("MotionInfo", motionInfo);
             pass.draw(3, 1, 0, 0);
         }
 
         int status = DlssNative.evaluate(VulkanAccess.commandBuffer(),
-            VulkanAccess.concat(VulkanAccess.describe(lowColor), VulkanAccess.describe(lowDepth),
+            VulkanAccess.concat(VulkanAccess.describe(lowColor), VulkanAccess.describe(combinedDepthView),
                 VulkanAccess.describe(motionView), VulkanAccess.describe(outputView)),
             jitterX * DlssConfig.jitterSignX, jitterY * DlssConfig.jitterSignY, 1.0F, 1.0F, resetHistory);
         if (status != DlssNative.OK) {
             disable(DlssNative.message());
             return;
         }
-        lastDepthView = lowDepth;
 
         if (full.width == outputWidth && full.height == outputHeight) {
             if (DlssConfig.sharpness > 0.001F) {

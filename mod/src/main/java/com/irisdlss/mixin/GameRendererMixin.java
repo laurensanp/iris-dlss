@@ -9,6 +9,9 @@ import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.state.GameRenderState;
+import net.minecraft.client.renderer.state.OptionsRenderState;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.renderer.state.level.PlayerRenderState;
 import net.minecraft.client.renderer.state.WindowRenderState;
 import org.joml.Matrix4f;
 import org.spongepowered.asm.mixin.Final;
@@ -39,6 +42,13 @@ public abstract class GameRendererMixin {
     @Shadow
     public abstract void resize(int width, int height);
 
+    /** Dev option -Diris-dlss.debugSpin=degrees per frame. */
+    @Unique
+    private static final float IRISDLSS_DEBUG_SPIN = Float.parseFloat(System.getProperty("iris-dlss.debugSpin", "0"));
+    /** Dev option -Diris-dlss.debugWalk=true. */
+    @Unique
+    private static final boolean IRISDLSS_DEBUG_WALK = Boolean.getBoolean("iris-dlss.debugWalk");
+
     @Unique
     private RenderTarget irisdlss$low;
     @Unique
@@ -52,6 +62,14 @@ public abstract class GameRendererMixin {
 
     @Inject(method = "render", at = @At("HEAD"))
     private void irisdlss$beginFrame(CallbackInfo ci) {
+        if (IRISDLSS_DEBUG_SPIN != 0.0F && net.minecraft.client.Minecraft.getInstance().player != null) {
+            // Dev option: steady camera turn, as if the mouse moved the same amount every frame.
+            net.minecraft.client.Minecraft.getInstance().player.turn(IRISDLSS_DEBUG_SPIN / 0.15F, 0.0);
+        }
+        if (IRISDLSS_DEBUG_WALK && net.minecraft.client.Minecraft.getInstance().player != null) {
+            // Dev option: hold "forward".
+            net.minecraft.client.Minecraft.getInstance().options.keyUp.setDown(true);
+        }
         WindowRenderState window = this.gameRenderState().windowRenderState;
         this.irisdlss$frameActive = DlssUpscaler.prepare(window.width, window.height);
         if (!this.irisdlss$frameActive) {
@@ -109,6 +127,15 @@ public abstract class GameRendererMixin {
     private void irisdlss$skipWindowSizedResize(GameRenderer instance, int width, int height, Operation<Void> original) {
         if (!this.irisdlss$frameActive) {
             original.call(instance, width, height);
+        }
+    }
+
+    /** The hand pass clears the depth buffer: keep the world's depth for motion vectors first. */
+    @Inject(method = "render3dHud", at = @At("HEAD"))
+    private void irisdlss$saveWorldDepth(CameraRenderState cameraState, PlayerRenderState playerState,
+        OptionsRenderState optionsState, boolean consistentDepthRequired, CallbackInfo ci) {
+        if (this.irisdlss$frameActive) {
+            DlssUpscaler.saveWorldDepth(this.mainRenderTarget, consistentDepthRequired);
         }
     }
 

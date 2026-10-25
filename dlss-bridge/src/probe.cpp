@@ -368,10 +368,12 @@ int wmain() {
                 }
                 Sleep(8);
             }
-            float stats[3];
+            float stats[IRISDLSS_STATS_COUNT];
             irisdlss_presenter_stats(stats);
-            std::printf("presented fps=%.1f frameGeneration=%d threadError=%d %s\n", stats[0], int(stats[1]),
-                int(stats[2]), irisdlss_last_message());
+            std::printf("presented fps=%.1f (rendered %.1f) frameGeneration=%d threadError=%d %s\n", stats[0],
+                stats[3], int(stats[1]), int(stats[2]), irisdlss_last_message());
+            std::printf("pacing: %.2f ms between frames, jitter %.2f ms, worst %.2f ms, latency %.2f ms\n", stats[4],
+                stats[5], stats[6], stats[7]);
             irisdlss_presenter_destroy();
         }
         DEVICE_FN(vkDeviceWaitIdle);

@@ -144,11 +144,18 @@ JNIEXPORT jlong JNICALL Java_com_irisdlss_DlssNative_present(JNIEnv* env, jclass
     return status == IRISDLSS_OK ? static_cast<jlong>(value) : static_cast<jlong>(value) | (1ll << 62);
 }
 
+JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_debugCapture(JNIEnv* env, jclass, jint frames, jstring dir) {
+    const jchar* chars = env->GetStringChars(dir, nullptr);
+    std::wstring path(reinterpret_cast<const wchar_t*>(chars), env->GetStringLength(dir));
+    env->ReleaseStringChars(dir, chars);
+    irisdlss_debug_capture(frames, path.c_str());
+}
+
 JNIEXPORT jfloatArray JNICALL Java_com_irisdlss_DlssNative_presenterStats(JNIEnv* env, jclass) {
-    float stats[3] = {};
+    float stats[IRISDLSS_STATS_COUNT] = {};
     irisdlss_presenter_stats(stats);
-    jfloatArray result = env->NewFloatArray(3);
-    env->SetFloatArrayRegion(result, 0, 3, stats);
+    jfloatArray result = env->NewFloatArray(IRISDLSS_STATS_COUNT);
+    env->SetFloatArrayRegion(result, 0, IRISDLSS_STATS_COUNT, stats);
     return result;
 }
 

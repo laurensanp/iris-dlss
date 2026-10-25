@@ -11,6 +11,7 @@
 #include <nvsdk_ngx_helpers_dlssg_vk.h>
 
 #include <atomic>
+#include <cmath>
 #include <condition_variable>
 #include <cstdio>
 #include <cstring>
@@ -81,6 +82,13 @@ struct Vk {
     PFN_vkGetSwapchainImagesKHR getSwapchainImages = nullptr;
     PFN_vkAcquireNextImageKHR acquireNextImage = nullptr;
     PFN_vkQueuePresentKHR queuePresent = nullptr;
+    // Debug capture.
+    PFN_vkCreateBuffer createBuffer = nullptr;
+    PFN_vkDestroyBuffer destroyBuffer = nullptr;
+    PFN_vkGetBufferMemoryRequirements getBufferMemoryRequirements = nullptr;
+    PFN_vkBindBufferMemory bindBufferMemory = nullptr;
+    PFN_vkMapMemory mapMemory = nullptr;
+    PFN_vkCmdCopyImageToBuffer cmdCopyImageToBuffer = nullptr;
 
     // The game's objects (never destroyed here).
     VkInstance instance = VK_NULL_HANDLE;
@@ -550,6 +558,12 @@ IRISDLSS_API int32_t irisdlss_init() {
     loadDevice(g_vk.getSwapchainImages, "vkGetSwapchainImagesKHR");
     loadDevice(g_vk.acquireNextImage, "vkAcquireNextImageKHR");
     loadDevice(g_vk.queuePresent, "vkQueuePresentKHR");
+    loadDevice(g_vk.createBuffer, "vkCreateBuffer");
+    loadDevice(g_vk.destroyBuffer, "vkDestroyBuffer");
+    loadDevice(g_vk.getBufferMemoryRequirements, "vkGetBufferMemoryRequirements");
+    loadDevice(g_vk.bindBufferMemory, "vkBindBufferMemory");
+    loadDevice(g_vk.mapMemory, "vkMapMemory");
+    loadDevice(g_vk.cmdCopyImageToBuffer, "vkCmdCopyImageToBuffer");
     g_vk.getDeviceQueue(g_vk.device, g_vk.queueFamily, 0, &g_vk.queue);
     if (g_vk.presentQueueIndex >= 0) {
         g_vk.getDeviceQueue(g_vk.device, g_vk.queueFamily, static_cast<uint32_t>(g_vk.presentQueueIndex),
@@ -742,6 +756,19 @@ struct Job {
     int slot;
     bool interpolated;
     uint64_t value;  // timeline value signaled when the slot's images are rendered
+    double queued;   // when the game handed the frame over (render thread)
+};
+
+// Presentation timing, gathered on the presenter thread and published once a second.
+struct Timing {
+    double lastShow = 0.0;
+    double windowStart = 0.0;
+    double intervalSum = 0.0;
+    double intervalSqSum = 0.0;
+    double intervalMax = 0.0;
+    uint32_t intervals = 0;
+    double latencySum = 0.0;
+    uint32_t latencies = 0;
 };
 
 struct Presenter {
@@ -792,6 +819,11 @@ struct Presenter {
     double statsStart = 0.0;
     float fps = 0.0f;
     bool fgRecently = false;
+    Timing timing;
+    std::atomic<float> intervalMs{0.0f};
+    std::atomic<float> jitterMs{0.0f};
+    std::atomic<float> worstMs{0.0f};
+    std::atomic<float> latencyMs{0.0f};
 
     // Process exit without irisdlss_presenter_destroy: a joinable std::thread would terminate().
     ~Presenter() {
@@ -1103,6 +1135,41 @@ void showImage(const LocalImage& source, uint64_t ready) {
         g_present.recreate = true;
     }
     g_present.shownCount++;
+    Timing& timing = g_present.timing;
+    double shown = now();
+    if (timing.lastShow > 0.0) {
+        double interval = shown - timing.lastShow;
+        timing.intervalSum += interval;
+        timing.intervalSqSum += interval * interval;
+        timing.intervalMax = interval > timing.intervalMax ? interval : timing.intervalMax;
+        timing.intervals++;
+    }
+    timing.lastShow = shown;
+}
+
+// Presenter thread, after a real frame went out.
+void recordLatency(double queued) {
+    Timing& timing = g_present.timing;
+    double t = now();
+    timing.latencySum += t - queued;
+    timing.latencies++;
+    if (timing.windowStart == 0.0) {
+        timing.windowStart = t;
+    }
+    if (t - timing.windowStart >= 1.0) {
+        if (timing.intervals > 0) {
+            double mean = timing.intervalSum / timing.intervals;
+            double variance = timing.intervalSqSum / timing.intervals - mean * mean;
+            g_present.intervalMs = static_cast<float>(mean * 1000.0);
+            g_present.jitterMs = static_cast<float>(std::sqrt(variance > 0.0 ? variance : 0.0) * 1000.0);
+            g_present.worstMs = static_cast<float>(timing.intervalMax * 1000.0);
+        }
+        g_present.latencyMs = static_cast<float>(timing.latencySum / timing.latencies * 1000.0);
+        double lastShow = timing.lastShow;
+        timing = Timing{};
+        timing.lastShow = lastShow;
+        timing.windowStart = t;
+    }
 }
 
 void waitBlits() {
@@ -1187,6 +1254,7 @@ void presenterLoop() {
         }
         if (shown) {
             showImage(slot.real, job.value);
+            recordLatency(job.queued);
         }
         waitBlits();
         {
@@ -1194,6 +1262,206 @@ void presenterLoop() {
             slot.busy = false;
         }
         g_present.cv.notify_all();
+    }
+}
+
+// ---- Debug capture: the real and generated frames of a few presented frames as PNG files ----------
+
+struct CaptureImage {
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint64_t ready = 0;  // timeline value after which the copy is complete
+    std::wstring path;
+    bool motion = false;  // RG16F motion vectors (render pixels), shown as colors
+    bool depth = false;   // D32 depth, written as a value grid only
+};
+
+float halfToFloat(uint16_t h) {
+    uint32_t sign = (h >> 15) & 1, exponent = (h >> 10) & 0x1F, mantissa = h & 0x3FF;
+    float value = exponent == 0 ? mantissa / 1024.0f / 16384.0f
+        : exponent == 31 ? 65504.0f : (1.0f + mantissa / 1024.0f) * std::ldexp(1.0f, static_cast<int>(exponent) - 15);
+    return sign ? -value : value;
+}
+
+struct Capture {
+    int remaining = 0;
+    int frame = 0;
+    std::wstring dir;
+    std::vector<CaptureImage> pending;
+} g_capture;
+
+uint32_t crc32(const uint8_t* data, size_t size) {
+    static uint32_t table[256];
+    if (!table[1]) {
+        for (uint32_t i = 0; i < 256; i++) {
+            uint32_t c = i;
+            for (int k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+            table[i] = c;
+        }
+    }
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < size; i++) crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+    return ~crc;
+}
+
+// RGBA8 rows bottom first (the game's orientation) -> PNG (uncompressed deflate), top row first.
+void writePng(const std::wstring& path, const uint8_t* rgba, uint32_t width, uint32_t height) {
+    std::vector<uint8_t> raw;
+    raw.reserve(static_cast<size_t>(width * 3 + 1) * height);
+    for (uint32_t y = 0; y < height; y++) {
+        const uint8_t* row = rgba + static_cast<size_t>(height - 1 - y) * width * 4;
+        raw.push_back(0);
+        for (uint32_t x = 0; x < width; x++) {
+            raw.insert(raw.end(), row + x * 4, row + x * 4 + 3);
+        }
+    }
+    std::vector<uint8_t> z = {0x78, 0x01};
+    uint32_t a = 1, b = 0;
+    for (uint8_t v : raw) {
+        a = (a + v) % 65521;
+        b = (b + a) % 65521;
+    }
+    for (size_t pos = 0; pos < raw.size();) {
+        size_t n = raw.size() - pos < 65535 ? raw.size() - pos : 65535;
+        z.push_back(pos + n == raw.size() ? 1 : 0);
+        z.push_back(static_cast<uint8_t>(n & 0xFF));
+        z.push_back(static_cast<uint8_t>(n >> 8));
+        z.push_back(static_cast<uint8_t>(~n & 0xFF));
+        z.push_back(static_cast<uint8_t>((~n >> 8) & 0xFF));
+        z.insert(z.end(), raw.begin() + static_cast<std::ptrdiff_t>(pos),
+            raw.begin() + static_cast<std::ptrdiff_t>(pos + n));
+        pos += n;
+    }
+    uint32_t adler = (b << 16) | a;
+    for (int i = 3; i >= 0; i--) z.push_back(static_cast<uint8_t>(adler >> (i * 8)));
+
+    FILE* f = _wfopen(path.c_str(), L"wb");
+    if (!f) {
+        return;
+    }
+    auto be32 = [&](uint32_t v) {
+        uint8_t bytes[4] = {uint8_t(v >> 24), uint8_t(v >> 16), uint8_t(v >> 8), uint8_t(v)};
+        std::fwrite(bytes, 1, 4, f);
+    };
+    auto chunk = [&](const char* type, const std::vector<uint8_t>& data) {
+        be32(static_cast<uint32_t>(data.size()));
+        std::vector<uint8_t> body(type, type + 4);
+        body.insert(body.end(), data.begin(), data.end());
+        std::fwrite(body.data(), 1, body.size(), f);
+        be32(crc32(body.data(), body.size()));
+    };
+    static const uint8_t signature[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    std::fwrite(signature, 1, 8, f);
+    std::vector<uint8_t> header = {uint8_t(width >> 24), uint8_t(width >> 16), uint8_t(width >> 8), uint8_t(width),
+        uint8_t(height >> 24), uint8_t(height >> 16), uint8_t(height >> 8), uint8_t(height), 8, 2, 0, 0, 0};
+    chunk("IHDR", header);
+    chunk("IDAT", z);
+    chunk("IEND", {});
+    std::fclose(f);
+}
+
+// Records a copy of image (in TRANSFER_SRC_OPTIMAL) into a host-visible buffer.
+void captureImage(VkCommandBuffer cmd, VkImage image, uint32_t width, uint32_t height, const std::wstring& name,
+    VkImageLayout layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, bool motion = false, bool depth = false,
+    bool depthAspect = false) {
+    CaptureImage out;
+    out.motion = motion;
+    out.depth = depth;
+    out.width = width;
+    out.height = height;
+    out.path = g_capture.dir + L"\\" + name;
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = static_cast<VkDeviceSize>(width) * height * 4;
+    info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    if (g_vk.createBuffer(g_vk.device, &info, nullptr, &out.buffer) != VK_SUCCESS) {
+        return;
+    }
+    VkMemoryRequirements requirements;
+    g_vk.getBufferMemoryRequirements(g_vk.device, out.buffer, &requirements);
+    VkMemoryAllocateInfo alloc{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    alloc.allocationSize = requirements.size;
+    alloc.memoryTypeIndex = findMemoryType(requirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (alloc.memoryTypeIndex == UINT32_MAX || g_vk.allocateMemory(g_vk.device, &alloc, nullptr, &out.memory) != VK_SUCCESS
+        || g_vk.bindBufferMemory(g_vk.device, out.buffer, out.memory, 0) != VK_SUCCESS) {
+        g_vk.destroyBuffer(g_vk.device, out.buffer, nullptr);
+        return;
+    }
+    VkBufferImageCopy region{};
+    region.imageSubresource = {depthAspect ? VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT) : VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
+        0, 0, 1};
+    region.imageExtent = {width, height, 1};
+    g_vk.cmdCopyImageToBuffer(cmd, image, layout, out.buffer, 1, &region);
+    out.ready = g_present.timelineValue + 1;  // the value this present() hands out
+    g_capture.pending.push_back(out);
+}
+
+// Writes captures whose frame finished on the GPU (render thread).
+void flushCaptures(bool wait) {
+    for (size_t i = 0; i < g_capture.pending.size();) {
+        CaptureImage& c = g_capture.pending[i];
+        VkSemaphoreWaitInfo info{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+        info.semaphoreCount = 1;
+        info.pSemaphores = &g_present.timeline;
+        info.pValues = &c.ready;
+        if (g_vk.waitSemaphores(g_vk.device, &info, wait ? 1'000'000'000ull : 0) != VK_SUCCESS) {
+            i++;
+            continue;
+        }
+        void* data = nullptr;
+        if (g_vk.mapMemory(g_vk.device, c.memory, 0, VK_WHOLE_SIZE, 0, &data) == VK_SUCCESS) {
+            if (c.depth) {
+                const auto* d = static_cast<const float*>(data);
+                FILE* txt = _wfopen(c.path.c_str(), L"w");
+                if (txt) {
+                    for (int gy = 0; gy < 5; gy++) {
+                        uint32_t y = c.height - 1 - (c.height - 1) * gy / 4;
+                        for (int gx = 0; gx < 9; gx++) {
+                            uint32_t x = (c.width - 1) * gx / 8;
+                            std::fprintf(txt, "%.7f ", d[static_cast<size_t>(y) * c.width + x]);
+                        }
+                        std::fputc('\n', txt);
+                    }
+                    std::fclose(txt);
+                }
+            } else if (c.motion) {
+                // x -> red, y -> green around mid grey; 4 render pixels of motion = full scale.
+                std::vector<uint8_t> rgba(static_cast<size_t>(c.width) * c.height * 4);
+                const auto* mv = static_cast<const uint16_t*>(data);
+                for (size_t i = 0; i < static_cast<size_t>(c.width) * c.height; i++) {
+                    auto channel = [](float v) {
+                        float x = 127.5f + v * 32.0f;
+                        return static_cast<uint8_t>(x < 0.0f ? 0.0f : x > 255.0f ? 255.0f : x);
+                    };
+                    rgba[i * 4] = channel(halfToFloat(mv[i * 2]));
+                    rgba[i * 4 + 1] = channel(halfToFloat(mv[i * 2 + 1]));
+                    rgba[i * 4 + 2] = 128;
+                    rgba[i * 4 + 3] = 255;
+                }
+                writePng(c.path, rgba.data(), c.width, c.height);
+                // Exact values on a 9 x 5 grid (row 0 = top of the screen), render pixels.
+                FILE* txt = _wfopen((c.path + L".txt").c_str(), L"w");
+                if (txt) {
+                    for (int gy = 0; gy < 5; gy++) {
+                        uint32_t y = c.height - 1 - (c.height - 1) * gy / 4;
+                        for (int gx = 0; gx < 9; gx++) {
+                            uint32_t x = (c.width - 1) * gx / 8;
+                            size_t i = static_cast<size_t>(y) * c.width + x;
+                            std::fprintf(txt, "%7.2f,%-7.2f ", halfToFloat(mv[i * 2]), halfToFloat(mv[i * 2 + 1]));
+                        }
+                        std::fputc('\n', txt);
+                    }
+                    std::fclose(txt);
+                }
+            } else {
+                writePng(c.path, static_cast<const uint8_t*>(data), c.width, c.height);
+            }
+        }
+        g_vk.destroyBuffer(g_vk.device, c.buffer, nullptr);
+        g_vk.freeMemory(g_vk.device, c.memory, nullptr);
+        g_capture.pending.erase(g_capture.pending.begin() + static_cast<std::ptrdiff_t>(i));
     }
 }
 
@@ -1243,6 +1511,9 @@ bool ensureFrameGeneration(VkCommandBuffer cmd) {
 IRISDLSS_API void irisdlss_presenter_destroy() {
     if (!g_vk.device) {
         return;
+    }
+    if (!g_capture.pending.empty() && g_present.timeline) {
+        flushCaptures(true);
     }
     if (g_present.thread.joinable()) {
         {
@@ -1416,6 +1687,9 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
         g_present.statsStart = t;
     }
 
+    if (!g_capture.pending.empty()) {
+        flushCaptures(false);
+    }
     int slotIndex = g_present.nextSlot;
     PresentSlot& slot = g_present.slots[slotIndex];
     {
@@ -1502,6 +1776,22 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
             barrier(*frame, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL),
         };
         pipelineBarrier(cmd, 6, afterEval);
+        if (g_capture.remaining > 0) {
+            // Generated frame (between the previous and this real frame), then this real frame.
+            wchar_t name[64];
+            std::swprintf(name, 64, L"fg_%03d_a_generated.png", g_capture.frame);
+            captureImage(cmd, slot.interp.image, g_present.width, g_present.height, name);
+            std::swprintf(name, 64, L"fg_%03d_b_real.png", g_capture.frame);
+            captureImage(cmd, slot.real.image, g_present.width, g_present.height, name);
+            std::swprintf(name, 64, L"fg_%03d_c_motion.png", g_capture.frame);
+            captureImage(cmd, reinterpret_cast<VkImage>(motion->image), motion->width, motion->height, name,
+                VK_IMAGE_LAYOUT_GENERAL, true);
+            std::swprintf(name, 64, L"fg_%03d_d_depth.txt", g_capture.frame);
+            captureImage(cmd, reinterpret_cast<VkImage>(depth->image), depth->width, depth->height, name,
+                VK_IMAGE_LAYOUT_GENERAL, false, true, isDepthFormat(static_cast<VkFormat>(depth->format)));
+            g_capture.frame++;
+            g_capture.remaining--;
+        }
     } else {
         VkImageMemoryBarrier toSource[2] = {
             barrier(slot.real.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -1515,7 +1805,7 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
     {
         std::lock_guard<std::mutex> lock(g_present.mutex);
         slot.busy = true;
-        g_present.jobs.push_back({slotIndex, useFg && NVSDK_NGX_SUCCEED(fgResult), value});
+        g_present.jobs.push_back({slotIndex, useFg && NVSDK_NGX_SUCCEED(fgResult), value, t});
     }
     g_present.cv.notify_all();
     g_present.nextSlot = (slotIndex + 1) % kSlotCount;
@@ -1530,10 +1820,22 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
     return IRISDLSS_OK;
 }
 
-IRISDLSS_API void irisdlss_presenter_stats(float stats[3]) {
+IRISDLSS_API void irisdlss_debug_capture(int32_t frames, const wchar_t* dir) {
+    g_capture.remaining = frames;
+    g_capture.frame = 0;
+    g_capture.dir = dir;
+}
+
+IRISDLSS_API void irisdlss_presenter_stats(float stats[IRISDLSS_STATS_COUNT]) {
     stats[0] = g_present.fps;
     stats[1] = g_present.fgRecently ? 1.0f : 0.0f;
     stats[2] = g_present.threadFailed ? 1.0f : 0.0f;
+    double interval = g_present.frameInterval.load();
+    stats[3] = interval > 0.0 ? static_cast<float>(1.0 / interval) : 0.0f;
+    stats[4] = g_present.intervalMs;
+    stats[5] = g_present.jitterMs;
+    stats[6] = g_present.worstMs;
+    stats[7] = g_present.latencyMs;
 }
 
 IRISDLSS_API void irisdlss_shutdown() {

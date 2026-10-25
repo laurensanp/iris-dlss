@@ -50,6 +50,14 @@ loom {
 			// Own LWJGL extract dir: another running Minecraft (e.g. Lunar Client) locks
 			// %TEMP%/lwjgl_<user>/.../lwjgl_zstd.dll, which Voxy needs to extract its own copy.
 			vmArg "-Dorg.lwjgl.system.SharedLibraryExtractPath=" + file("run/lwjgl-natives").absolutePath
+			// gradlew runClient -PdlssDebug=spin|walk: steady camera turn or walking forward, and a
+			// frame-generation capture into run/iris-dlss/captures (generated + real frames as PNG).
+			if (project.hasProperty("dlssDebug")) {
+				def mode = project.property("dlssDebug")
+				vmArg mode == "walk" ? "-Diris-dlss.debugWalk=true" : "-Diris-dlss.debugSpin=1.5"
+				vmArg "-Diris-dlss.captureAt=300"
+				vmArg "-Diris-dlss.debugLog=true"
+			}
 		}
 	}
 }

@@ -60,6 +60,9 @@ public final class DlssNative {
      */
     public static native long present(long commandBuffer, long[] frame, long[] frameGenImages, float[] fgParams);
 
-    /** {frames shown per second, frame generation ran (0/1), presenter thread error (0/1)}. */
+    /** Debug: PNGs of the generated and real frame of the next `frames` frame-generated presents. */
+    public static native void debugCapture(int frames, String dir);
+
+    /** {shown fps, frame generation ran (0/1), thread error (0/1), rendered fps, mean / stddev / worst ms between shown frames, latency ms}. */
     public static native float[] presenterStats();
 }

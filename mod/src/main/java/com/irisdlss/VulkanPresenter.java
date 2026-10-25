@@ -23,10 +23,13 @@ public final class VulkanPresenter {
     private static int height;
     private static boolean vsync = true;
     private static long timeline;
-    private static float[] stats = new float[3];
+    private static float[] stats = new float[8];
     private static long lastStatsTime;
     private static long lastLogTime;
     private static boolean appliedFrameGeneration;
+    /** Dev option -Diris-dlss.captureAt=N: capture frames after N frame-generated presents. */
+    private static final int CAPTURE_AT = Integer.getInteger("iris-dlss.captureAt", -1);
+    private static int frameGeneratedPresents;
 
     private VulkanPresenter() {
     }
@@ -74,6 +77,16 @@ public final class VulkanPresenter {
         if (DlssConfig.frameGeneration) {
             fg = DlssUpscaler.takeFrameGenParams();
             fgImages = fg != null ? DlssUpscaler.frameGenImages() : null;
+        }
+        if (fgImages != null && frameGeneratedPresents++ == CAPTURE_AT) {
+            java.nio.file.Path dir = IrisDlss.nativeDir.resolve("captures");
+            try {
+                java.nio.file.Files.createDirectories(dir);
+                DlssNative.debugCapture(4, dir.toAbsolutePath().toString());
+                IrisDlss.LOGGER.info("Iris DLSS: capturing frames into {}", dir);
+            } catch (java.io.IOException e) {
+                IrisDlss.LOGGER.warn("Iris DLSS: capture failed", e);
+            }
         }
         long result = DlssNative.present(VulkanAccess.commandBuffer(), VulkanAccess.describe(view), fgImages,
             fgImages != null ? fg : null);
@@ -157,6 +170,8 @@ public final class VulkanPresenter {
         }
         String fg = !DlssConfig.frameGeneration ? "Frame Generation off"
             : stats[1] > 0 ? "Frame Generation x2" : "Frame Generation idle";
-        return String.format("Output: presenter %s, %.0f fps shown, %s", vsync ? "VSync" : "no VSync", stats[0], fg);
+        return String.format("Output: presenter %s, %.0f fps shown (%.0f rendered), %s, pacing %.1f±%.1f ms "
+            + "(worst %.1f), latency %.1f ms", vsync ? "VSync" : "no VSync", stats[0], stats[3], fg, stats[4], stats[5],
+            stats[6], stats[7]);
     }
 }
