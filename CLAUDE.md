@@ -63,6 +63,9 @@ M1 in progress, in the fork:
   the horizon box work. A pack without gbuffers draws the world with the original shaders (the Vulkan
   counterpart of Iris' synthesized fallback programs). Not optimized: per-draw uniform upload.
   The chequered pattern on distant sand with Solas also shows on OpenGL without DLSS (pack, not port).
+  Fixed 2026-10-25: block textures looked scrambled with Solas (generated normals) because uniforms were
+  uploaded at `setPipeline`, before Sodium binds `u_BlockTex`, so `atlasSize` came from the GUI font
+  texture; `VulkanGbuffers.afterAlbedoBound` re-uploads them. Shows best at sunset (`time set 12300`).
   Test options: `-PtestCommands="time set 18000;weather rain;tp @p -36 82 18 180 8"` (run after joining;
   that tp gives the beach view used for GL/Vulkan comparisons), `-PtestPitch=40` (negative looks up).
   OpenGL reference shot: `enabled=false` in `config/iris-dlss.properties` + `preferredGraphicsBackend:"opengl"`
