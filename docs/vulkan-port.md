@@ -44,3 +44,55 @@ Fork Iris (branch `26.3`) and replace its OpenGL backend:
    renders correctly.
 4. **M4** Voxy LODs on Vulkan (own renderer over Voxy's data).
 5. DLSS SR + FG on top (already Vulkan-native in this mod).
+
+## M1 design
+
+Fork: `IrisShaders/Iris` branch `26.3` (head `671a5c877`), work on branch `vulkan`, cloned next to
+this repo (`../iris-vulkan`).
+
+What 26.3 Iris does on Vulkan today: `IrisMixinPlugin` reads `preferredGraphicsBackend` from
+`options.txt`; on Vulkan only the `VKOnly_*` mixins apply and the shader screen just offers switching
+to OpenGL. This mod forces Vulkan regardless of that option, so the fork also treats "iris-dlss
+installed with `enabled` not false" as Vulkan (first change on branch `vulkan`).
+
+RenderPearl (26.3) covers everything composite/final need, no native code:
+
+* `GpuDevice.compilePipeline(RenderPipeline, ShaderSource, Executor)` takes our own `ShaderSource`:
+  Iris serves the transformed pack GLSL under synthetic ids (`iris:pack/composite1`), RenderPearl's
+  `GlslCompiler` (shaderc, auto-bind uniforms) makes SPIR-V.
+* `BindGroupLayout`: `COMBINED_IMAGE_SAMPLER`, `UNIFORM_BUFFER`, `TEXEL_BUFFER`, bound by name with
+  `RenderPass.setUniform(name, ...)`. No storage images / SSBOs / compute: those stay for M3 (native).
+* `RenderPassDescriptor`: several color attachments + depth, so colortex MRT (`DRAWBUFFERS`) maps 1:1.
+* `GpuFormat` has every Iris `InternalTextureFormat` that matters (RGBA16F, R11G11B10F, RGB10A2, ...).
+* Mipmapped colortex (`*MipmapEnabled`): no mipmap API; a downsample blit chain per level.
+
+GLSL rules of RenderPearl's compiler (from the vanilla core shaders): `#version 330`, explicit
+`layout(location = n)` on every varying (`GL_ARB_separate_shader_objects`), std140 named uniform
+blocks, loose `sampler2D` allowed, `gl_VertexIndex`. On top of Iris' existing core-profile transform
+the Vulkan path therefore adds, in glsl-transformer:
+
+1. loose non-opaque uniforms -> one `layout(std140) uniform IrisUniforms { ... }`; the std140 offset of
+   each member is its "location";
+2. explicit locations for every `in`/`out` varying, matched by name between stages;
+3. `gl_VertexID` -> `gl_VertexIndex`, `gl_FragData[n]` / `outColorN` -> `layout(location = n)` outputs.
+
+Java side: Iris above `net.irisshaders.iris.gl` talks in GL ints (program ids, uniform locations,
+texture ids as `IntSupplier`). Keep those ints and port only the leaves:
+
+| Leaf | Vulkan replacement |
+|------|--------------------|
+| `GlShader`, `ProgramCreator`, `ProgramBuilder` | `RenderPipeline` + `CompiledRenderPipeline`, program id -> registry entry |
+| `ProgramUniforms` / `IrisRenderSystem.uniform*` | write into the program's CPU copy of `IrisUniforms` at the reflected offset, upload once per draw (`TransientMemory`) |
+| `ProgramSamplers` | texture unit -> sampler name, `setUniform(name, view, sampler)` |
+| `GlTexture`, `RenderTarget`, `DepthTexture` | `GpuTexture` / `GpuTextureView`, texture id -> registry entry |
+| `GlFramebuffer` | list of views -> `RenderPassDescriptor` |
+| `CompositeRenderer` / `FinalPassRenderer` draw | render pass + `draw(0, 3, 0, 1)` fullscreen triangle |
+
+Order of work: (a) Iris loads on Vulkan with the pipeline disabled (no GL calls reached),
+(b) registries + render targets, (c) one composite pass of a trivial test pack, (d) the full
+composite/final chain of Solas over the vanilla world, verified with captures.
+
+**Status 2026-10-25: M1 done.** (a)-(d) verified with in-game screenshots: Solas 3.8's full
+deferred/composite/final chain runs on Vulkan + Sodium + DLSS SR (RTX 3070, ~116 fps in the dev window).
+Still skipped until M3: compute (`shadowcomp`) and 3D custom images (stubbed to read zero). Details and
+the M2 entry points are in `CLAUDE.md`.

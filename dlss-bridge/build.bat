@@ -3,7 +3,7 @@ rem Builds irisdlss.dll and the probe with MSVC (Visual Studio 2022).
 rem The project lives in a deep folder; MSVC cannot open headers past MAX_PATH, so the build runs
 rem on a temporary drive letter (subst) that is removed again afterwards.
 setlocal
-for /f "usebackq delims=" %%I in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set VSDIR=%%I
+for /f "usebackq delims=" %%I in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VSDIR=%%I
 call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" >nul 2>nul
 where cl >nul 2>nul || (echo MSVC not found & exit /b 1)
 
