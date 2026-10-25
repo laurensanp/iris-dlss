@@ -42,7 +42,7 @@ M1 in progress, in the fork:
   differ; render targets have full mip chains (`VulkanDraw.generateMipmaps`, passes write mip 0 views);
   3D samplers / images are replaced by zero-returning stubs in `VulkanTransformer`; compute programs are
   skipped via `VulkanUnsupported.computeSkipped`.
-* **M2 (gbuffers) in progress, branch `vulkan-m2`.** `Iris.isPackInUseQuick()` is true on Vulkan again,
+* **M2 (gbuffers) done, branch `vulkan-m2`.** `Iris.isPackInUseQuick()` is true on Vulkan again,
   `copyMainColorIntoColortex0` is gone. Verified with the `VulkanTest` pack (gbuffers_basic/textured/terrain
   writing colortex0+1): Sodium terrain, particles and hand draw with the pack's programs, block.properties
   IDs work. Design (`vulkan/VulkanGbuffers`): GL Iris rebinds its framebuffer before each draw, Vulkan can't,
@@ -56,12 +56,19 @@ M1 in progress, in the fork:
   this Iris inverts depth in the shader transform (`DepthTransformer`), the `UndoReverseZ*` mixins are off.
   **Verified with Solas 3.8** (all gbuffers programs compile): terrain, water, sky + clouds, entities,
   block entities, held items, hand, night sky and rain render with Solas; ~62 fps rendered in the 854x480
-  window (RTX 4060 Ti, DLSS SR + FG). Not done: no shadows (shadow pass skipped until M3), Iris' synthesized
-  fallback programs (pack lacks a program) draw with the original shaders, per-draw uniform upload not
-  optimized. Test options: `-PtestCommands="time set 18000;weather rain;summon pig ^ ^ ^3"` (run after
-  joining), `-PtestPitch=40` (camera pitch, negative looks up).
-* Known gaps: shadow pass (skipped on Vulkan), geometry/tessellation shaders, compute, images, colour
-  space conversion, horizon box, uniform default values (`uniform float x = 1.0;` starts at 0).
+  window (RTX 4060 Ti, DLSS SR + FG). Water reflections match an OpenGL reference shot: GL formats without
+  alpha (RGB16F...) are RGBA on Vulkan, so those targets start with alpha 1 and never get alpha written
+  (`VulkanTextures.keepOpaqueAlpha`; Solas drops reflections where gaux1.a is 0). Vertex inputs declared
+  wider than their element are padded like GL (`VulkanProgram.narrowInputs`). Uniform default values and
+  the horizon box work. A pack without gbuffers draws the world with the original shaders (the Vulkan
+  counterpart of Iris' synthesized fallback programs). Not optimized: per-draw uniform upload.
+  The chequered pattern on distant sand with Solas also shows on OpenGL without DLSS (pack, not port).
+  Test options: `-PtestCommands="time set 18000;weather rain;tp @p -36 82 18 180 8"` (run after joining;
+  that tp gives the beach view used for GL/Vulkan comparisons), `-PtestPitch=40` (negative looks up).
+  OpenGL reference shot: `enabled=false` in `config/iris-dlss.properties` + `preferredGraphicsBackend:"opengl"`
+  in `options.txt`, then restore both. `VulkanTestPost` pack: composite/final only, no gbuffers.
+* Known gaps (M3): shadow pass (skipped on Vulkan), geometry/tessellation shaders, compute, images, colour
+  space conversion.
   Grep the log for `Not supported on Vulkan yet` and `ignored GlStateManager.` to see what a pack hits.
 * The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
 * `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
