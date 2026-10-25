@@ -8,9 +8,10 @@ Two codebases, side by side:
 * **the Iris fork** (github.com/laurensanp/iris-vulkan, cloned next to this repo as `../iris-vulkan`;
   upstream github.com/IrisShaders/Iris branch `26.3`): porting Iris shader packs to Vulkan so they run
   together with DLSS. Plan and milestones are in `docs/vulkan-port.md`. **Read that first.**
-  Branches: `vulkan-m1` = the port described below (M1 working); `vulkan` = an earlier, separate start
-  (own SPIR-V compiler/reflection, not rendering yet). Both branch off upstream `671a5c877` and touch
-  11 of the same files; decide with the user which to continue before merging anything.
+  Branches: `vulkan-m2` = current work (M1 + gbuffers, on top of `vulkan-m1`); `vulkan-m1` = M1 only;
+  `vulkan` = an earlier, separate start (own SPIR-V compiler/reflection, not rendering yet). `vulkan` and
+  `vulkan-m1` both branch off upstream `671a5c877` and touch 11 of the same files; decide with the user
+  which to continue before merging anything.
   (`iris-vulkan` is also recorded in this repo as a bare gitlink without `.gitmodules`; work in the
   separate clone, not through that entry.)
 
@@ -41,17 +42,26 @@ M1 in progress, in the fork:
   differ; render targets have full mip chains (`VulkanDraw.generateMipmaps`, passes write mip 0 views);
   3D samplers / images are replaced by zero-returning stubs in `VulkanTransformer`; compute programs are
   skipped via `VulkanUnsupported.computeSkipped`.
-* **Next: M2 (gbuffers).** Make `Iris.isPackInUseQuick()` true on Vulkan again and replace its GL
-  consumers: `MixinShaderManager_Overrides.redirectIrisProgram` must return Vulkan pipelines built from the
-  pack's gbuffers programs (`ShaderKey` map in `IrisRenderingPipeline`, currently returns null on Vulkan),
-  rendering into the pack's colortex framebuffers instead of the main target; Sodium terrain
-  (`compat/sodium`) needs the same with Iris' extended vertex format; then drop
-  `copyMainColorIntoColortex0`. Watch reverse-Z (Iris' `UndoReverseZ*` mixins are GL-only).
-* Known gaps: geometry/tessellation shaders, compute, images, colour space conversion, horizon box,
-  uniform default values (`uniform float x = 1.0;` starts at 0), per-buffer blend overrides.
+* **M2 (gbuffers) in progress, branch `vulkan-m2`.** `Iris.isPackInUseQuick()` is true on Vulkan again,
+  `copyMainColorIntoColortex0` is gone. Verified with the `VulkanTest` pack (gbuffers_basic/textured/terrain
+  writing colortex0+1): Sodium terrain, particles and hand draw with the pack's programs, block.properties
+  IDs work. Design (`vulkan/VulkanGbuffers`): GL Iris rebinds its framebuffer before each draw, Vulkan can't,
+  so world render passes into the main target are redirected to all gbuffer colortex buffers (union of the
+  programs' DRAWBUFFERS) + main depth (`MixinFrontendCommandEncoder_Gbuffers`), and every `setPipeline` in
+  such a pass is swapped for a variant built for those attachments (`MixinFrontendRenderPass_Gbuffers`):
+  the pack program (`VulkanProgram.compileGbuffer`: original pipeline's vertex layout/depth/cull/blend,
+  outputs moved to their DRAWBUFFERS attachment, vertex inputs matched by name, unmatched ones stubbed) or,
+  without one, the original shaders writing colortex0. `VulkanTransformer` gives gbuffers programs
+  vanilla's/Sodium's binding names (DynamicTransforms, Sampler0, u_BlockTex...). Reverse-Z is no issue:
+  this Iris inverts depth in the shader transform (`DepthTransformer`), the `UndoReverseZ*` mixins are off.
+  Next: check entities, block entities, clouds, weather, water with a real pack (Solas); Iris' synthesized
+  fallback programs (missing pack programs) still draw with the original shaders on Vulkan.
+* Known gaps: shadow pass (skipped on Vulkan), geometry/tessellation shaders, compute, images, colour
+  space conversion, horizon box, uniform default values (`uniform float x = 1.0;` starts at 0).
   Grep the log for `Not supported on Vulkan yet` and `ignored GlStateManager.` to see what a pack hits.
-* Not committed yet / not pushed anywhere: the fork has no remote of ours. Ask the user before
-  pushing it anywhere (it's LGPL-3.0, a public fork is fine license-wise).
+* The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
+* `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
+  files, recreate it from the description above if missing.
 
 ## Fork design (Iris on Vulkan)
 
