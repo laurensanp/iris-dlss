@@ -145,7 +145,9 @@ Rules:
   Not CPU-bound (JFR, 2026-10-26): the render thread mostly waits in RenderPearl's `submit` for the frame
   before last (GPU-bound) and in the presenter's `frameStart`. DLSS SR preset K itself costs ~2 ms at
   1080p on the 4060 Ti (DLAA vs off), FG ~3 ms per rendered frame; render distance 32 -> 12 lifts
-  Performance from 145 to 170. Preset E (CNN, added as an option) is ~1 ms cheaper than K. Run the
+  Performance from 145 to 170. Preset E (CNN, added as an option) is ~1 ms cheaper than K. Preset L (12, second-gen
+  transformer, added too) is ~1.8 ms more expensive than K at Quality (104 -> 87 fps in one run).
+  Dev `options.txt` has `inactivityFpsLimit:"minimized"`, else the AFK limit (30 fps) hits long benchmarks. Run the
   benchmark with nothing else loading the PC (numbers swing ~25 % between runs otherwise).
   Logs written across midnight get lost (log roll), rerun then.
 * `-PdlssDebug=spin|walk` turns on this mod's capture/motion debugging; its frame captures only fire when

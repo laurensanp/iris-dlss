@@ -21,6 +21,8 @@ public final class DlssBenchmark {
         new Mode("SR Quality + FG", true, DlssConfig.Quality.QUALITY, true, DlssConfig.Preset.K),
         new Mode("SR Quality", true, DlssConfig.Quality.QUALITY, false, DlssConfig.Preset.K),
         new Mode("SR Performance", true, DlssConfig.Quality.PERFORMANCE, false, DlssConfig.Preset.K),
+        new Mode("SR Quality, preset L", true, DlssConfig.Quality.QUALITY, false, DlssConfig.Preset.L),
+        new Mode("SR Performance, preset L", true, DlssConfig.Quality.PERFORMANCE, false, DlssConfig.Preset.L),
         new Mode("SR Quality, preset E", true, DlssConfig.Quality.QUALITY, false, DlssConfig.Preset.E),
         new Mode("SR Quality + FG, preset E", true, DlssConfig.Quality.QUALITY, true, DlssConfig.Preset.E),
         new Mode("DLAA", true, DlssConfig.Quality.DLAA, false, DlssConfig.Preset.K),
