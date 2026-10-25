@@ -13,16 +13,19 @@ public final class DlssBenchmark {
     private static final long SETTLE_NANOS = 3_000_000_000L;
     private static final long MEASURE_NANOS = 10_000_000_000L;
 
-    private record Mode(String name, boolean enabled, DlssConfig.Quality quality, boolean frameGeneration) {
+    private record Mode(String name, boolean enabled, DlssConfig.Quality quality, boolean frameGeneration,
+        DlssConfig.Preset preset) {
     }
 
     private static final Mode[] MODES = {
-        new Mode("SR Quality + FG", true, DlssConfig.Quality.QUALITY, true),
-        new Mode("SR Quality", true, DlssConfig.Quality.QUALITY, false),
-        new Mode("SR Performance", true, DlssConfig.Quality.PERFORMANCE, false),
-        new Mode("DLAA", true, DlssConfig.Quality.DLAA, false),
-        new Mode("DLSS off", false, DlssConfig.Quality.QUALITY, false),
-        new Mode("SR Quality + FG (again)", true, DlssConfig.Quality.QUALITY, true),
+        new Mode("SR Quality + FG", true, DlssConfig.Quality.QUALITY, true, DlssConfig.Preset.K),
+        new Mode("SR Quality", true, DlssConfig.Quality.QUALITY, false, DlssConfig.Preset.K),
+        new Mode("SR Performance", true, DlssConfig.Quality.PERFORMANCE, false, DlssConfig.Preset.K),
+        new Mode("SR Quality, preset E", true, DlssConfig.Quality.QUALITY, false, DlssConfig.Preset.E),
+        new Mode("SR Quality + FG, preset E", true, DlssConfig.Quality.QUALITY, true, DlssConfig.Preset.E),
+        new Mode("DLAA", true, DlssConfig.Quality.DLAA, false, DlssConfig.Preset.K),
+        new Mode("DLSS off", false, DlssConfig.Quality.QUALITY, false, DlssConfig.Preset.K),
+        new Mode("SR Quality + FG (again)", true, DlssConfig.Quality.QUALITY, true, DlssConfig.Preset.K),
     };
 
     private static long phaseStart;
@@ -95,6 +98,7 @@ public final class DlssBenchmark {
         DlssConfig.enabled = m.enabled;
         DlssConfig.quality = m.quality;
         DlssConfig.frameGeneration = m.frameGeneration;
+        DlssConfig.preset = m.preset;
         if (m.frameGeneration) {
             DlssConfig.vulkanPresent = true;
         }
