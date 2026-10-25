@@ -1,5 +1,6 @@
 package com.irisdlss.mixin;
 
+import com.irisdlss.DlssBenchmark;
 import com.irisdlss.VulkanPresenter;
 import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
@@ -14,5 +15,6 @@ public class MinecraftMixin {
     @Inject(method = "runTick", at = @At("HEAD"))
     private void irisdlss$frameStart(boolean advanceGameTime, CallbackInfo ci) {
         VulkanPresenter.frameStart();
+        DlssBenchmark.frame();
     }
 }

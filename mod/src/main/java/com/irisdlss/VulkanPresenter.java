@@ -162,6 +162,20 @@ public final class VulkanPresenter {
         failureReason = "";
     }
 
+    /** Frames per second the presenter showed, generated ones included (refreshed at most twice a second). */
+    public static float shownFps() {
+        refreshStats();
+        return stats[0];
+    }
+
+    private static void refreshStats() {
+        long now = System.currentTimeMillis();
+        if (now - lastStatsTime > 500) {
+            stats = DlssNative.presenterStats();
+            lastStatsTime = now;
+        }
+    }
+
     /** F3 / settings line. */
     public static String statusLine() {
         if (!DlssConfig.vulkanPresent) {
@@ -173,11 +187,7 @@ public final class VulkanPresenter {
         if (!running) {
             return "Output: presenter (starting)";
         }
-        long now = System.currentTimeMillis();
-        if (now - lastStatsTime > 500) {
-            stats = DlssNative.presenterStats();
-            lastStatsTime = now;
-        }
+        refreshStats();
         String fg = !DlssConfig.frameGeneration ? "Frame Generation off"
             : stats[1] > 0 ? "Frame Generation x2" : "Frame Generation idle";
         return String.format("Output: presenter %s, %.0f fps shown (%.0f rendered), %s, pacing %.1f±%.1f ms "

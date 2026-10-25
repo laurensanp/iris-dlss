@@ -121,6 +121,11 @@ Rules:
 * Pipeline creation failures are caught by Iris ("Failed to create shader rendering pipeline") and logged
   with a stack trace in `fabric/run/logs/latest.log`; fatal GL calls show up as `FATAL ERROR in native
   method` in the Gradle output instead.
+* Benchmark: `-PtestWorld=vulkan-test -PdlssBenchmark -PwindowSize=1920x1080` (fork) cycles SR+FG, SR Quality,
+  SR Performance, DLAA, off through `DlssConfig` (`DlssBenchmark`, not the settings UI, config file not written)
+  and logs `Iris DLSS benchmark:` lines with rendered/shown fps. Solas, 1080p, static view, 4060 Ti (2026-10-25):
+  SR+FG 92 rendered/180 shown, SR Quality 142, SR Performance 145, DLAA 80, off 104. Quality ~ Performance:
+  CPU-bound (per-draw uniform upload in the Vulkan port), so a lower render scale gains nothing there.
 * `-PdlssDebug=spin|walk` turns on this mod's capture/motion debugging; its frame captures only fire when
   Frame Generation runs.
 
