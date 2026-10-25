@@ -72,6 +72,12 @@ M1 in progress, in the fork:
   in `options.txt`, then restore both. `VulkanTestPost` pack: composite/final only, no gbuffers.
 * **Complementary Reimagined r5.9.3 runs** on Vulkan (2026-10-25): needed the fallback texture created
   outside render passes, a Vulkan PBR sampler, and `tex` mapped to the albedo binding (`VulkanTransformer`).
+* Other packs (2026-10-25, Modrinth downloads in `fabric/run/shaderpacks`): Complementary Unbound, BSL,
+  MakeUp Ultra Fast run. Photon, Bliss, Sildur's still fail to compile (set aside by the user; focus is
+  Solas); Rethinking Voxels needs CUSTOM_IMAGES/SSBO/COMPUTE (M3). Test script idea: set `shaderPack=` in
+  `fabric/run/config/iris.properties`, run the test world, grep the log.
+  `enableDebugOptions=true` (dumps `fabric/run/patched_shaders`) makes Solas' deferred1 fail
+  (`colortex5` undeclared with SSAO=false); keep it false otherwise.
 * Lunar Client: its "Multi-Threaded Rendering" acquires/presents the swapchain itself (mixins on
   `FrontendGpuSurface.acquireNextTexture` / `VulkanGpuSurface.present`), so the DLSS presenter (and FG)
   can't run; the mod detects it, keeps the game's output and says so in the status line. The user plays
