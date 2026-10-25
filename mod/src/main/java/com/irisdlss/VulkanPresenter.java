@@ -204,6 +204,29 @@ public final class VulkanPresenter {
     }
 
     /** F3 / settings line. */
+    /** Short form of {@link #statusLine()} for the settings screen and the overlay. */
+    public static String compactStatus() {
+        if (!DlssConfig.vulkanPresent) {
+            return "Presenter off";
+        }
+        if (failed) {
+            return "Presenter failed: " + failureReason;
+        }
+        if (foreignSwapchain) {
+            return "No Frame Generation: turn off Lunar's Multi-Threaded Rendering";
+        }
+        if (!DlssUpscaler.isActive()) {
+            return "Presenter off (DLSS off)";
+        }
+        if (!running) {
+            return "Presenter starting";
+        }
+        refreshStats();
+        String fg = !DlssConfig.frameGeneration ? "FG off" : stats[1] > 0 ? "FG x2" : "FG idle";
+        return String.format("Presenter: %.0f fps (%.0f rendered), %s, latency %.0f ms", stats[0], stats[3], fg,
+            stats[7]);
+    }
+
     public static String statusLine() {
         if (!DlssConfig.vulkanPresent) {
             return "Output: game swapchain";

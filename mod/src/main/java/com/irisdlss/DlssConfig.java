@@ -10,22 +10,43 @@ import java.util.Properties;
 /** config/iris-dlss.properties, editable in game through the settings screen. */
 public final class DlssConfig {
 
-    /** NVSDK_NGX_PerfQuality_Value, in the order shown in the settings screen. */
+    /**
+     * NVSDK_NGX_PerfQuality_Value, in the order shown in the settings screen. {@code scale} is the render
+     * resolution per axis; CUSTOM takes {@link #renderScale}.
+     */
     public enum Quality {
-        DLAA(5, "DLAA", "dlaa"),
-        QUALITY(2, "Quality", "quality"),
-        BALANCED(1, "Balanced", "balanced"),
-        PERFORMANCE(0, "Performance", "performance"),
-        ULTRA_PERFORMANCE(3, "Ultra Performance", "ultra_performance");
+        DLAA(5, "DLAA", "dlaa", 1.0),
+        QUALITY(2, "Quality", "quality", 2.0 / 3.0),
+        BALANCED(1, "Balanced", "balanced", 0.58),
+        PERFORMANCE(0, "Performance", "performance", 0.5),
+        ULTRA_PERFORMANCE(3, "Ultra Performance", "ultra_performance", 1.0 / 3.0),
+        CUSTOM(-1, "Custom", "custom", 0.0);
 
         public final int ngx;
         public final String label;
         public final String key;
+        private final double scale;
 
-        Quality(int ngx, String label, String key) {
+        Quality(int ngx, String label, String key, double scale) {
             this.ngx = ngx;
             this.label = label;
             this.key = key;
+            this.scale = scale;
+        }
+
+        /** Render resolution per axis, 0.33..1. */
+        public double scale() {
+            return this == CUSTOM ? renderScale / 100.0 : scale;
+        }
+
+        /** The NGX mode DLSS is created with: CUSTOM uses the mode closest to its scale. */
+        public int ngxMode() {
+            if (this != CUSTOM) {
+                return ngx;
+            }
+            double s = scale();
+            return s >= 0.99 ? DLAA.ngx : s >= 0.62 ? QUALITY.ngx : s >= 0.54 ? BALANCED.ngx
+                : s >= 0.42 ? PERFORMANCE.ngx : ULTRA_PERFORMANCE.ngx;
         }
     }
 
@@ -33,6 +54,7 @@ public final class DlssConfig {
     public enum Preset {
         K(11, "K (Transformer, best)", "k"),
         L(12, "L (Transformer 2)", "l"),
+        M(13, "M (Transformer 2, performance)", "m"),
         J(10, "J (Transformer, less ghosting)", "j"),
         E(5, "E (CNN, fastest)", "e"),
         DEFAULT(0, "Driver default", "default");
@@ -96,6 +118,26 @@ public final class DlssConfig {
     public static boolean frameGeneration = true;
     /** Contrast-adaptive sharpening after DLSS, 0..1. */
     public static float sharpness = 0.35F;
+    /** Render resolution in percent for {@link Quality#CUSTOM}. */
+    public static int renderScale = 67;
+    /** Switch the shader pack's own TAA off at startup (DLSS does the anti-aliasing). */
+    public static boolean disablePackTaa = true;
+    /** Small fps / DLSS lines in the corner of the HUD. */
+    public static Overlay overlay = Overlay.OFF;
+
+    public enum Overlay {
+        OFF("Off", "off"),
+        FPS("FPS", "fps"),
+        DETAILED("Detailed", "detailed");
+
+        public final String label;
+        public final String key;
+
+        Overlay(String label, String key) {
+            this.label = label;
+            this.key = key;
+        }
+    }
 
     private static Path file;
 
@@ -122,6 +164,9 @@ public final class DlssConfig {
         vulkanPresent = Boolean.parseBoolean(p.getProperty("vulkanPresent", "true"));
         frameGeneration = Boolean.parseBoolean(p.getProperty("frameGeneration", "true"));
         sharpness = Math.max(0.0F, Math.min(1.0F, parseFloat(p.getProperty("sharpness"), 0.35F)));
+        renderScale = Math.max(33, Math.min(100, Math.round(parseFloat(p.getProperty("renderScale"), 67.0F))));
+        disablePackTaa = Boolean.parseBoolean(p.getProperty("disablePackTaa", "true"));
+        overlay = parse(Overlay.values(), p.getProperty("overlay"), Overlay.OFF);
         save();
     }
 
@@ -132,9 +177,9 @@ public final class DlssConfig {
         try (Writer writer = Files.newBufferedWriter(file)) {
             writer.write("# Iris DLSS Bridge - also editable in game (Mod Menu > Iris DLSS Bridge)\n");
             writer.write("enabled=" + enabled + "\n");
-            writer.write("# dlaa | quality | balanced | performance | ultra_performance\n");
+            writer.write("# dlaa | quality | balanced | performance | ultra_performance | custom (renderScale %)\n");
             writer.write("quality=" + quality.key + "\n");
-            writer.write("# k | l | j | e | default\n");
+            writer.write("# k | l | m | j | e | default\n");
             writer.write("preset=" + preset.key + "\n");
             writer.write("textureLodBias=" + textureLodBias + "\n");
             writer.write("handDistance=" + handDistance + "\n");
@@ -143,6 +188,10 @@ public final class DlssConfig {
             writer.write("vulkanPresent=" + vulkanPresent + "\n");
             writer.write("frameGeneration=" + frameGeneration + "\n");
             writer.write("sharpness=" + sharpness + "\n");
+            writer.write("renderScale=" + renderScale + "\n");
+            writer.write("disablePackTaa=" + disablePackTaa + "\n");
+            writer.write("# off | fps | detailed\n");
+            writer.write("overlay=" + overlay.key + "\n");
         } catch (IOException e) {
             IrisDlss.LOGGER.warn("Could not write {}", file, e);
         }
@@ -154,7 +203,8 @@ public final class DlssConfig {
             return fallback;
         }
         for (E e : values) {
-            String key = e instanceof Quality q ? q.key : e instanceof Preset p ? p.key : e.name();
+            String key = e instanceof Quality q ? q.key : e instanceof Preset p ? p.key
+                : e instanceof Overlay o ? o.key : e.name();
             if (key.equalsIgnoreCase(value.trim())) {
                 return e;
             }

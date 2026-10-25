@@ -16,13 +16,7 @@ public final class SamplerLodBias {
         if (!DlssConfig.enabled || !DlssConfig.textureLodBias) {
             return 0.0F;
         }
-        double scale = switch (DlssConfig.quality) {
-            case DLAA -> 1.0;
-            case QUALITY -> 2.0 / 3.0;
-            case BALANCED -> 0.58;
-            case PERFORMANCE -> 0.5;
-            case ULTRA_PERFORMANCE -> 1.0 / 3.0;
-        };
+        double scale = DlssConfig.quality.scale();
         return Math.max(-1.0F, (float) (Math.log(scale) / Math.log(2.0)));
     }
 }

@@ -192,6 +192,7 @@ public final class DlssUpscaler {
     private static boolean depthInverted;
     private static DlssConfig.Quality appliedQuality = DlssConfig.Quality.QUALITY;
     private static DlssConfig.Preset appliedPreset = DlssConfig.Preset.K;
+    private static int appliedRenderScale;
     private static String failureReason = "";
 
     private static CompiledRenderPipeline motionPipeline;
@@ -302,7 +303,7 @@ public final class DlssUpscaler {
         if (outputTexture == null) {
             return "DLSS: starting";
         }
-        return String.format("Vulkan DLSS SR %s, preset %s: %dx%d -> %dx%d, sharpen %d%%", appliedQuality.label,
+        return String.format("Vulkan DLSS SR %s, preset %s: %dx%d -> %dx%d, sharpen %d%%", modeLabel(),
             appliedPreset.name(), renderWidth, renderHeight, outputWidth, outputHeight,
             Math.round(DlssConfig.sharpness * 100));
     }
@@ -351,8 +352,9 @@ public final class DlssUpscaler {
         boolean inverted = DepthConvention.depthInverted();
         if (windowWidth != outputWidth || windowHeight != outputHeight || outputTexture == null
             || inverted != depthInverted || DlssConfig.quality != appliedQuality
-            || DlssConfig.preset != appliedPreset) {
-            int[] optimal = DlssNative.optimalSettings(windowWidth, windowHeight, DlssConfig.quality.ngx);
+            || DlssConfig.preset != appliedPreset
+            || DlssConfig.quality == DlssConfig.Quality.CUSTOM && DlssConfig.renderScale != appliedRenderScale) {
+            int[] optimal = renderSize(windowWidth, windowHeight);
             if (optimal == null || optimal[0] <= 0 || optimal[1] <= 0) {
                 disable("no render size for " + DlssConfig.quality.label);
                 return false;
@@ -361,8 +363,9 @@ public final class DlssUpscaler {
             depthInverted = inverted;
             appliedQuality = DlssConfig.quality;
             appliedPreset = DlssConfig.preset;
+            appliedRenderScale = DlssConfig.renderScale;
             int status = DlssNative.createResources(VulkanAccess.commandBuffer(), optimal[0], optimal[1], windowWidth,
-                windowHeight, DlssConfig.quality.ngx, inverted, DlssConfig.preset.ngx);
+                windowHeight, DlssConfig.quality.ngxMode(), inverted, DlssConfig.preset.ngx);
             if (status != DlssNative.OK) {
                 disable(DlssNative.message());
                 return false;
@@ -389,10 +392,25 @@ public final class DlssUpscaler {
             outputView = RenderSystem.getDevice().createTextureView(outputTexture);
             resetHistory = true;
             IrisDlss.LOGGER.info("Iris DLSS: {} {} preset {} (depth {}, texture LOD bias {})", DlssNative.message(),
-                appliedQuality.label, appliedPreset.name(), inverted ? "reverse-Z" : "classic",
+                modeLabel(), appliedPreset.name(), inverted ? "reverse-Z" : "classic",
                 String.format("%.2f", SamplerLodBias.vulkanBias()));
         }
         return true;
+    }
+
+    /** Render size for the window: NVIDIA's optimal size for the mode, or the custom scale. */
+    private static int[] renderSize(int windowWidth, int windowHeight) {
+        if (DlssConfig.quality != DlssConfig.Quality.CUSTOM) {
+            return DlssNative.optimalSettings(windowWidth, windowHeight, DlssConfig.quality.ngx);
+        }
+        double scale = DlssConfig.quality.scale();
+        return new int[] {Math.max(1, (int) Math.round(windowWidth * scale)),
+            Math.max(1, (int) Math.round(windowHeight * scale))};
+    }
+
+    /** "Quality" or "Custom 80 %". */
+    public static String modeLabel() {
+        return appliedQuality == DlssConfig.Quality.CUSTOM ? "Custom " + appliedRenderScale + " %" : appliedQuality.label;
     }
 
     private static CompiledRenderPipeline compile(RenderPipeline pipeline) {

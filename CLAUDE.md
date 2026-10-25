@@ -147,6 +147,12 @@ Rules:
   1080p on the 4060 Ti (DLAA vs off), FG ~3 ms per rendered frame; render distance 32 -> 12 lifts
   Performance from 145 to 170. Preset E (CNN, added as an option) is ~1 ms cheaper than K. Preset L (12, second-gen
   transformer, added too) is ~1.8 ms more expensive than K at Quality (104 -> 87 fps in one run).
+  Preset M (13) at Performance ~0.9 ms more than K. Mode "Custom" (render scale 33-100 %) creates DLSS
+  with that size and the closest NGX mode (`Quality.ngxMode`); 80 % = 1536x864 works.
+  Settings UI (2026-10-26): Sodium pages "Settings" / "Advanced" (`SodiumOptions`, options grey out via
+  `setEnabledProvider`) and the Mod Menu screen (`DlssSettingsScreen`, same options in sections);
+  performance overlay in the HUD (`HudMixin`, setting `overlay`). Screenshot them with the fork's
+  `-PdlssScreen=mod|sodium|sodium2` (opens the screen after joining, `DevScreens`).
   Dev `options.txt` has `inactivityFpsLimit:"minimized"`, else the AFK limit (30 fps) hits long benchmarks. Run the
   benchmark with nothing else loading the PC (numbers swing ~25 % between runs otherwise).
   Logs written across midnight get lost (log roll), rerun then.

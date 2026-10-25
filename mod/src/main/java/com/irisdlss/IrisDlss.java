@@ -54,7 +54,7 @@ public class IrisDlss implements ClientModInitializer {
             System.load(nativeDir.resolve("irisdlss.dll").toAbsolutePath().toString());
             DlssNative.setDataPath(nativeDir.toAbsolutePath().toString());
             nativeLoaded = true;
-            if (DlssConfig.enabled) {
+            if (DlssConfig.enabled && DlssConfig.disablePackTaa) {
                 ShaderPackTweaks.disablePackTaa(FabricLoader.getInstance().getGameDir());
             }
         } catch (IOException | UnsatisfiedLinkError e) {
