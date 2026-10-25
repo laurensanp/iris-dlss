@@ -5,9 +5,14 @@ Two codebases, side by side:
 * **this repo** (`iris-dlss`, github.com/laurensanp/iris-dlss): Fabric mod for Minecraft 26.3 that runs
   DLSS Super Resolution + Frame Generation inside the game's own Vulkan renderer (RenderPearl).
   Done and working (0.4.0). See `README.md`.
-* **the Iris fork** (`../iris-vulkan`, upstream github.com/IrisShaders/Iris branch `26.3`, our work on
-  branch `vulkan`): porting Iris shader packs to Vulkan so they run together with DLSS. Plan and
-  milestones are in `docs/vulkan-port.md`. **Read that first.**
+* **the Iris fork** (github.com/laurensanp/iris-vulkan, cloned next to this repo as `../iris-vulkan`;
+  upstream github.com/IrisShaders/Iris branch `26.3`): porting Iris shader packs to Vulkan so they run
+  together with DLSS. Plan and milestones are in `docs/vulkan-port.md`. **Read that first.**
+  Branches: `vulkan-m1` = the port described below (M1 working); `vulkan` = an earlier, separate start
+  (own SPIR-V compiler/reflection, not rendering yet). Both branch off upstream `671a5c877` and touch
+  11 of the same files; decide with the user which to continue before merging anything.
+  (`iris-vulkan` is also recorded in this repo as a bare gitlink without `.gitmodules`; work in the
+  separate clone, not through that entry.)
 
 Goal in the end: Iris shader packs (Solas, Complementary) + Voxy LODs + DLSS SR/FG, all on Vulkan.
 
