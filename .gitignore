@@ -1,0 +1,14 @@
+# build outputs
+dlss-bridge/out/
+dlss-bridge/third_party/
+mod/build/
+mod/.gradle/
+mod/run/
+mod/src/main/resources/natives/
+libs/
+.gradle/
+*.obj
+*.exp
+*.lib
+*.pdb
+.idea/

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "iris-dlss",
+  "version": "${version}",
+  "name": "Iris DLSS Bridge",
+  "description": "NVIDIA DLSS Super Resolution for Minecraft 26.3 (also with Iris shaders and Voxy). Settings: Video Settings > DLSS... or Mod Menu.",
+  "authors": [
+    "you"
+  ],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.irisdlss.IrisDlss"
+    ],
+    "sodium:config_api_user": [
+      "com.irisdlss.SodiumOptions"
+    ],
+    "modmenu": [
+      "com.irisdlss.ModMenuIntegration"
+    ]
+  },
+  "mixins": [
+    "iris-dlss.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.20.1",
+    "minecraft": "26.3"
+  },
+  "breaks": {
+    "resolutionscaler": "*"
+  },
+  "suggests": {
+    "modmenu": "*"
+  }
+}

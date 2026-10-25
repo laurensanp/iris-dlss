@@ -1,0 +1,55 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "1.19-SNAPSHOT"
+}
+
+version = "0.3.0+mc26.3"
+group = "com.irisdlss"
+
+repositories {
+	maven { url = "https://maven.terraformersmc.com/releases/" }
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:26.3"
+	implementation "net.fabricmc:fabric-loader:0.20.1"
+	compileOnly "com.terraformersmc:modmenu:21.0.0"
+	// Sodium config API (optional at runtime; the entry point only loads with Sodium)
+	compileOnly files(project.property("sodium_jar"))
+}
+
+processResources {
+	inputs.property "version", project.version
+	filesMatching("fabric.mod.json") {
+		expand "version": project.version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+	it.options.encoding = 'UTF-8'
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+// Native bridge (built by dlss-bridge/build.bat) and NVIDIA's DLSS runtime are packed into the jar.
+tasks.register("copyNatives", Copy) {
+	from("../dlss-bridge/out") { include "irisdlss.dll", "nvngx_dlss.dll", "nvngx_dlssg.dll" }
+	from("../dlss-bridge/third_party/ngx") { include "LICENSE.txt"; rename { "NVIDIA_DLSS_LICENSE.txt" } }
+	into "src/main/resources/natives"
+}
+processResources.dependsOn copyNatives
+
+loom {
+	runs {
+		client {
+			// Same test game dir as the Iris package test (Sodium, Iris, Voxy, Complementary).
+			runDir = "run"
+			// Own LWJGL extract dir: another running Minecraft (e.g. Lunar Client) locks
+			// %TEMP%/lwjgl_<user>/.../lwjgl_zstd.dll, which Voxy needs to extract its own copy.
+			vmArg "-Dorg.lwjgl.system.SharedLibraryExtractPath=" + file("run/lwjgl-natives").absolutePath
+		}
+	}
+}

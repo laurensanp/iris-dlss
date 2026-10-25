@@ -1,0 +1,40 @@
+Iris DLSS Bridge 0.3.0 - NVIDIA DLSS + Frame Generation fuer Minecraft 26.3 (Fabric)
+=====================================================================================
+
+Installation
+  1. Alte iris-dlss-*.jar aus dem mods-Ordner loeschen.
+  2. iris-dlss-0.3.0+mc26.3.jar in den mods-Ordner ziehen. Fertig.
+  (Funktioniert auch in Lunar-Client-Profilen mit Fabric. Das Spiel muss dafuer geschlossen sein.)
+
+Voraussetzungen
+  - NVIDIA RTX-Grafikkarte (Frame Generation: RTX 40 / 50), aktueller Treiber
+  - Minecraft 26.3 mit Fabric Loader 0.20.1+
+  - Optional: Sodium + Iris (Shader) und Voxy, werden unterstuetzt
+  - NICHT zusammen mit GGTU / ResolutionScaler verwenden
+
+Was die Mod macht
+  - Die Welt wird in niedrigerer Aufloesung gerendert, DLSS (Vulkan) rechnet sie hoch.
+  - Das fertige Bild geht ueber eine Vulkan-Swapchain auf den Bildschirm (nicht mehr OpenGL).
+  - Frame Generation (DLSS-G) erzeugt zwischen zwei echten Bildern ein zusaetzliches Bild.
+  - Das eigene TAA des Shaderpacks wird beim Start automatisch ausgeschaltet
+    (doppeltes TAA macht das Bild unscharf).
+
+Einstellungen im Spiel
+  Optionen > Grafik > Knopf "DLSS..." oben rechts (oder Mod Menu > Iris DLSS Bridge)
+    DLSS              an / aus
+    Quality           DLAA (am schaerfsten, native Aufloesung), Quality, Balanced,
+                      Performance, Ultra Performance
+    Model             K (Transformer, beste Qualitaet), J, Treiber-Standard
+    Texture LOD bias  schaerfere Texturen bei niedriger Renderaufloesung
+    Frame Generation  an / aus (braucht "Vulkan output")
+    Vulkan output     Bild ueber Vulkan statt OpenGL ausgeben
+    Sharpening        Nachschaerfen nach DLSS, 0-100 %
+  Aenderungen wirken sofort. VSync kommt aus den normalen Grafikeinstellungen.
+
+Tipp fuer ein Bild wie ohne DLSS
+  Quality "DLAA" + Frame Generation an: native Schaerfe, trotzdem doppelte Bildrate.
+
+Kontrolle
+  F3 zeigt unter "OpenGL ..." zwei Zeilen:
+    "Vulkan DLSS SR ..."              Hochskalierung
+    "Output: Vulkan swapchain ..."    Ausgabe, angezeigte FPS und "Frame Generation x2"
