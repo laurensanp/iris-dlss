@@ -115,6 +115,10 @@ JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_setVsync(JNIEnv*, jclass, jb
     irisdlss_presenter_set_vsync(vsync ? 1 : 0);
 }
 
+JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_frameStart(JNIEnv*, jclass) {
+    irisdlss_presenter_frame_start();
+}
+
 JNIEXPORT jlong JNICALL Java_com_irisdlss_DlssNative_presenterTimeline(JNIEnv*, jclass) {
     return static_cast<jlong>(irisdlss_presenter_timeline());
 }

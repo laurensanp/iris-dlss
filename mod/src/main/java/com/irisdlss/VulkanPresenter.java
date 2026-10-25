@@ -51,6 +51,16 @@ public final class VulkanPresenter {
         }
     }
 
+    /**
+     * Minecraft.runTick, before input is read: like NVIDIA Reflex, start the frame only when the
+     * presenter is about to need it, so frames do not queue up behind the display.
+     */
+    public static void frameStart() {
+        if (running) {
+            DlssNative.frameStart();
+        }
+    }
+
     /** VulkanGpuSurface.blitFromTexture. True if the frame went to the presenter. */
     public static boolean present(long sdlWindow, GpuTextureView view) {
         if (!wanted()) {

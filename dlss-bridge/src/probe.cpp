@@ -282,7 +282,8 @@ void fgParams(float* params, uint32_t renderWidth, uint32_t renderHeight, uint32
 
 }  // namespace
 
-int wmain() {
+int wmain(int argc, wchar_t** argv) {
+    bool vsync = argc > 1 && std::wstring(argv[1]) == L"vsync";
     wchar_t exePath[MAX_PATH];
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
     std::wstring dir(exePath);
@@ -338,7 +339,7 @@ int wmain() {
             submit(frame);
         }
         if (ok && status == IRISDLSS_OK) {
-            status = irisdlss_presenter_create(reinterpret_cast<uint64_t>(window), w, h, 0);
+            status = irisdlss_presenter_create(reinterpret_cast<uint64_t>(window), w, h, vsync ? 1 : 0);
             std::printf("presenter_create=%d %s\n", status, irisdlss_last_message());
             VkSemaphore timeline = reinterpret_cast<VkSemaphore>(irisdlss_presenter_timeline());
             float params[IRISDLSS_FG_PARAM_COUNT];
@@ -347,6 +348,7 @@ int wmain() {
                 while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
                     DispatchMessageW(&msg);
                 }
+                irisdlss_presenter_frame_start();
                 VkCommandBuffer cmd = begin(frame);
                 float t = i / 240.0f;
                 clearColor(cmd, color, t, 0.3f, 1.0f - t);
@@ -366,7 +368,9 @@ int wmain() {
                     std::printf("  submit failed at frame %d\n", i);
                     break;
                 }
-                Sleep(8);
+                if (!vsync) {
+                    Sleep(8);
+                }
             }
             float stats[IRISDLSS_STATS_COUNT];
             irisdlss_presenter_stats(stats);

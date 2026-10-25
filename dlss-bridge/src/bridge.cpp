@@ -11,6 +11,7 @@
 #include <nvsdk_ngx_helpers_dlssg_vk.h>
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
@@ -89,6 +90,7 @@ struct Vk {
     PFN_vkBindBufferMemory bindBufferMemory = nullptr;
     PFN_vkMapMemory mapMemory = nullptr;
     PFN_vkCmdCopyImageToBuffer cmdCopyImageToBuffer = nullptr;
+    PFN_vkWaitForPresentKHR waitForPresent = nullptr;
 
     // The game's objects (never destroyed here).
     VkInstance instance = VK_NULL_HANDLE;
@@ -101,6 +103,7 @@ struct Vk {
     uint32_t opticalFlowFamily = UINT32_MAX;
     std::string deviceName;
     std::string fgExtensionsMissing;
+    bool presentWait = false;  // VK_KHR_present_id + VK_KHR_present_wait enabled
 
     bool ngxInitialized = false;
     NVSDK_NGX_Parameter* capabilities = nullptr;
@@ -385,12 +388,21 @@ IRISDLSS_API int32_t irisdlss_create_device(uint64_t gipaAddress, uint64_t insta
     if (opticalFlowExt) {
         addUnique(names, VK_NV_OPTICAL_FLOW_EXTENSION_NAME);
     }
+    // The presenter paces frames on when they actually reach the screen (VK_KHR_present_wait).
+    bool presentWaitExt = hasExtension(available, VK_KHR_PRESENT_ID_EXTENSION_NAME)
+        && hasExtension(available, VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
 
     // Features: buffer device address (NGX) and optical flow (DLSS-G), set in the game's own feature
     // structs where it has them, otherwise in structs placed in front of its chain.
     VkPhysicalDeviceOpticalFlowFeaturesNV opticalFlowSupported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPTICAL_FLOW_FEATURES_NV};
     VkPhysicalDeviceVulkan12Features vk12Supported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
-    vk12Supported.pNext = opticalFlowExt ? &opticalFlowSupported : nullptr;
+    VkPhysicalDevicePresentIdFeaturesKHR presentIdSupported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR};
+    VkPhysicalDevicePresentWaitFeaturesKHR presentWaitSupported{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR};
+    presentIdSupported.pNext = &presentWaitSupported;
+    presentWaitSupported.pNext = opticalFlowExt ? &opticalFlowSupported : nullptr;
+    vk12Supported.pNext = presentWaitExt ? static_cast<void*>(&presentIdSupported)
+        : opticalFlowExt ? static_cast<void*>(&opticalFlowSupported) : nullptr;
     VkPhysicalDeviceFeatures2 supported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     supported.pNext = &vk12Supported;
     features2(physical, &supported);
@@ -420,6 +432,18 @@ IRISDLSS_API int32_t irisdlss_create_device(uint64_t gipaAddress, uint64_t insta
             extraBda.pNext = const_cast<void*>(chain);
             chain = &extraBda;
         }
+    }
+    VkPhysicalDevicePresentIdFeaturesKHR extraPresentId{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR};
+    VkPhysicalDevicePresentWaitFeaturesKHR extraPresentWait{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR};
+    bool presentWait = presentWaitExt && presentIdSupported.presentId && presentWaitSupported.presentWait;
+    if (presentWait) {
+        addUnique(names, VK_KHR_PRESENT_ID_EXTENSION_NAME);
+        addUnique(names, VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
+        extraPresentId.presentId = VK_TRUE;
+        extraPresentWait.presentWait = VK_TRUE;
+        extraPresentWait.pNext = const_cast<void*>(chain);
+        extraPresentId.pNext = &extraPresentWait;
+        chain = &extraPresentId;
     }
     if (opticalFlowExt && opticalFlowSupported.opticalFlow) {
         if (gameOpticalFlow) {
@@ -503,6 +527,7 @@ IRISDLSS_API int32_t irisdlss_create_device(uint64_t gipaAddress, uint64_t insta
     g_vk.queueFamily = graphicsFamily;
     g_vk.presentQueueIndex = presentIndex;
     g_vk.opticalFlowFamily = opticalFlowFamily;
+    g_vk.presentWait = presentWait;
     g_vk.deviceName = props.properties.deviceName;
     g_message = "DLSS extensions enabled on " + g_vk.deviceName;
     return result;
@@ -564,6 +589,10 @@ IRISDLSS_API int32_t irisdlss_init() {
     loadDevice(g_vk.bindBufferMemory, "vkBindBufferMemory");
     loadDevice(g_vk.mapMemory, "vkMapMemory");
     loadDevice(g_vk.cmdCopyImageToBuffer, "vkCmdCopyImageToBuffer");
+    if (g_vk.presentWait) {
+        loadDevice(g_vk.waitForPresent, "vkWaitForPresentKHR");
+        g_vk.presentWait = g_vk.waitForPresent != nullptr;
+    }
     g_vk.getDeviceQueue(g_vk.device, g_vk.queueFamily, 0, &g_vk.queue);
     if (g_vk.presentQueueIndex >= 0) {
         g_vk.getDeviceQueue(g_vk.device, g_vk.queueFamily, static_cast<uint32_t>(g_vk.presentQueueIndex),
@@ -757,6 +786,7 @@ struct Job {
     bool interpolated;
     uint64_t value;  // timeline value signaled when the slot's images are rendered
     double queued;   // when the game handed the frame over (render thread)
+    double started;  // when the game started the frame (irisdlss_presenter_frame_start), 0 if unknown
 };
 
 // Presentation timing, gathered on the presenter thread and published once a second.
@@ -824,11 +854,28 @@ struct Presenter {
     std::atomic<float> jitterMs{0.0f};
     std::atomic<float> worstMs{0.0f};
     std::atomic<float> latencyMs{0.0f};
+    uint64_t presentId = 0;  // last VkPresentIdKHR (presenter thread)
+
+    // Frame start pacing (low latency): when the presenter last took a job, how long a presenter
+    // cycle and a game frame take.
+    std::atomic<double> lastTake{0.0};
+    std::atomic<bool> lastInterpolated{false};
+    std::atomic<double> renderTime{0.0};  // frame start until the GPU finished it
+    std::atomic<double> refreshPeriod{0.0};
+    double refreshChecked = 0.0;
+    // GPU completion watcher: when each frame's submission finished on the GPU.
+    std::thread watcher;
+    static constexpr int kStartedRing = 64;
+    std::atomic<double> started[kStartedRing]{};
+    double frameStart = 0.0;
 
     // Process exit without irisdlss_presenter_destroy: a joinable std::thread would terminate().
     ~Presenter() {
         if (thread.joinable()) {
             thread.detach();
+        }
+        if (watcher.joinable()) {
+            watcher.detach();
         }
     }
 };
@@ -1056,8 +1103,22 @@ int takeBlitSlot() {
     return index;
 }
 
-// Blits source to the next swapchain image once the game's submission reached `ready`.
-void showImage(const LocalImage& source, uint64_t ready) {
+// One more frame reached the screen (or the present queue, without present wait).
+void markShown(double shown) {
+    Timing& timing = g_present.timing;
+    if (timing.lastShow > 0.0) {
+        double interval = shown - timing.lastShow;
+        timing.intervalSum += interval;
+        timing.intervalSqSum += interval * interval;
+        timing.intervalMax = interval > timing.intervalMax ? interval : timing.intervalMax;
+        timing.intervals++;
+    }
+    timing.lastShow = shown;
+}
+
+// Blits source to the next swapchain image once the game's submission reached `ready`. Returns the
+// present id to wait for (0 if nothing was presented or present wait is unavailable).
+uint64_t showImage(const LocalImage& source, uint64_t ready) {
     if (g_present.recreate.exchange(false) || !g_present.swapchain) {
         std::string error;
         if (!createSwapchain(error)) {
@@ -1065,7 +1126,7 @@ void showImage(const LocalImage& source, uint64_t ready) {
                 setThreadError(error);
             }
             g_present.recreate = true;
-            return;
+            return 0;
         }
     }
     int b = takeBlitSlot();
@@ -1074,7 +1135,7 @@ void showImage(const LocalImage& source, uint64_t ready) {
         VK_NULL_HANDLE, &index);
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         g_present.recreate = true;
-        return;
+        return 0;
     }
 
     VkCommandBuffer cmd = g_present.blitBuffers[b];
@@ -1121,7 +1182,7 @@ void showImage(const LocalImage& source, uint64_t ready) {
     submit.pSignalSemaphores = &g_present.blitDone[index];
     if (g_vk.queueSubmit(g_vk.presentQueue, 1, &submit, g_present.blitFences[b]) != VK_SUCCESS) {
         setThreadError("present blit submit failed");
-        return;
+        return 0;
     }
     g_present.blitInFlight[b] = true;
     VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
@@ -1130,21 +1191,44 @@ void showImage(const LocalImage& source, uint64_t ready) {
     present.swapchainCount = 1;
     present.pSwapchains = &g_present.swapchain;
     present.pImageIndices = &index;
+    uint64_t id = ++g_present.presentId;
+    VkPresentIdKHR presentId{VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
+    presentId.swapchainCount = 1;
+    presentId.pPresentIds = &id;
+    present.pNext = g_vk.presentWait ? &presentId : nullptr;
     result = g_vk.queuePresent(g_vk.presentQueue, &present);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
         g_present.recreate = true;
     }
     g_present.shownCount++;
-    Timing& timing = g_present.timing;
-    double shown = now();
-    if (timing.lastShow > 0.0) {
-        double interval = shown - timing.lastShow;
-        timing.intervalSum += interval;
-        timing.intervalSqSum += interval * interval;
-        timing.intervalMax = interval > timing.intervalMax ? interval : timing.intervalMax;
-        timing.intervals++;
+    if (!g_vk.presentWait) {
+        markShown(now());
+        return 0;
     }
-    timing.lastShow = shown;
+    return id;
+}
+
+// Presenter thread: until the frame with this present id is on screen. False if it never got there
+// in time (swapchain gone, presenter stopping).
+bool waitDisplayed(uint64_t id) {
+    if (id == 0 || !g_present.swapchain) {
+        return false;
+    }
+    for (int attempt = 0; attempt < 10; attempt++) {
+        VkResult result = g_vk.waitForPresent(g_vk.device, g_present.swapchain, id, 20'000'000ull);
+        if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) {
+            markShown(now());
+            return true;
+        }
+        if (result != VK_TIMEOUT) {
+            return false;
+        }
+        std::lock_guard<std::mutex> lock(g_present.mutex);
+        if (g_present.stop) {
+            return false;
+        }
+    }
+    return false;
 }
 
 // Presenter thread, after a real frame went out.
@@ -1233,27 +1317,42 @@ void presenterLoop() {
             job = g_present.jobs.front();
             g_present.jobs.pop_front();
         }
+        g_present.lastTake = now();
+        g_present.lastInterpolated = job.interpolated;
+        g_present.cv.notify_all();  // the game may start its next frame now
+
         PresentSlot& slot = g_present.slots[job.slot];
-        bool shown = true;
+        // With VSync and present wait every frame waits until it is on screen, so the generated and
+        // the real frame each get one refresh. Otherwise the real frame follows half a frame later.
+        bool paceOnDisplay = g_vk.presentWait && g_present.vsync;
+        bool shown = waitRendered(job.value);
         if (job.interpolated) {
-            // Show the generated frame as soon as it exists, the real one half a frame interval later.
-            shown = waitRendered(job.value);
             if (shown) {
                 double start = now();
-                showImage(slot.interp, job.value);
+                uint64_t id = showImage(slot.interp, job.value);
                 g_present.generatedCount++;
-                bool backlog;
-                {
-                    std::lock_guard<std::mutex> lock(g_present.mutex);
-                    backlog = !g_present.jobs.empty();
-                }
-                if (!backlog) {
-                    sleepUntil(start + g_present.frameInterval.load() * 0.5);
+                if (paceOnDisplay) {
+                    waitDisplayed(id);
+                } else {
+                    if (g_vk.presentWait) {
+                        waitDisplayed(id);  // timing only: returns right away without VSync
+                    }
+                    bool backlog;
+                    {
+                        std::lock_guard<std::mutex> lock(g_present.mutex);
+                        backlog = !g_present.jobs.empty();
+                    }
+                    if (!backlog) {
+                        sleepUntil(start + g_present.frameInterval.load() * 0.5);
+                    }
                 }
             }
         }
         if (shown) {
-            showImage(slot.real, job.value);
+            uint64_t id = showImage(slot.real, job.value);
+            if (g_vk.presentWait) {
+                waitDisplayed(id);
+            }
             recordLatency(job.queued);
         }
         waitBlits();
@@ -1465,6 +1564,39 @@ void flushCaptures(bool wait) {
     }
 }
 
+// Watcher thread: render time = frame start until the GPU finished the frame's submission.
+void watcherLoop() {
+    uint64_t next = 1;
+    VkSemaphoreWaitInfo info{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+    info.semaphoreCount = 1;
+    info.pSemaphores = &g_present.timeline;
+    info.pValues = &next;
+    for (;;) {
+        {
+            std::lock_guard<std::mutex> lock(g_present.mutex);
+            if (g_present.stop) {
+                return;
+            }
+        }
+        VkResult result = g_vk.waitSemaphores(g_vk.device, &info, 50'000'000ull);
+        if (result == VK_TIMEOUT) {
+            continue;
+        }
+        if (result != VK_SUCCESS) {
+            return;
+        }
+        double done = now();
+        double started = g_present.started[next % Presenter::kStartedRing].exchange(0.0);
+        if (started > 0.0 && done > started) {
+            double render = done - started;
+            double previous = g_present.renderTime.load();
+            // Rises at once, falls slowly: a frame that is late costs a whole refresh.
+            g_present.renderTime = render > previous ? render : previous * 0.95 + render * 0.05;
+        }
+        next++;
+    }
+}
+
 void releaseFrameGeneration() {
     retire(g_present.fg, g_present.fgParams);
     g_present.fg = nullptr;
@@ -1515,13 +1647,18 @@ IRISDLSS_API void irisdlss_presenter_destroy() {
     if (!g_capture.pending.empty() && g_present.timeline) {
         flushCaptures(true);
     }
-    if (g_present.thread.joinable()) {
+    if (g_present.thread.joinable() || g_present.watcher.joinable()) {
         {
             std::lock_guard<std::mutex> lock(g_present.mutex);
             g_present.stop = true;
         }
         g_present.cv.notify_all();
-        g_present.thread.join();
+        if (g_present.thread.joinable()) {
+            g_present.thread.join();
+        }
+    }
+    if (g_present.watcher.joinable()) {
+        g_present.watcher.join();
     }
     if (g_vk.presentQueue) {
         g_vk.queueWaitIdle(g_vk.presentQueue);
@@ -1565,6 +1702,13 @@ IRISDLSS_API void irisdlss_presenter_destroy() {
         g_present.timeline = VK_NULL_HANDLE;
     }
     g_present.timelineValue = 0;
+    g_present.presentId = 0;
+    g_present.lastTake = 0.0;
+    g_present.frameStart = 0.0;
+    g_present.renderTime = 0.0;
+    g_present.refreshPeriod = 0.0;
+    g_present.refreshChecked = 0.0;
+    g_present.timing = Timing{};
     if (g_present.timer) {
         CloseHandle(g_present.timer);
         g_present.timer = nullptr;
@@ -1649,8 +1793,36 @@ IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t wid
         return fail(IRISDLSS_DEVICE_FAILED, error);
     }
     g_present.thread = std::thread(presenterLoop);
-    g_message = "Vulkan presenter " + std::to_string(width) + "x" + std::to_string(height) + " on the game's device";
+    g_present.watcher = std::thread(watcherLoop);
+    g_message = "Vulkan presenter " + std::to_string(width) + "x" + std::to_string(height) + " on the game's device"
+        + (g_vk.presentWait ? ", paced on present wait" : ", no present wait");
     return IRISDLSS_OK;
+}
+
+IRISDLSS_API void irisdlss_presenter_frame_start() {
+    if (!g_present.thread.joinable()) {
+        return;
+    }
+    // 1. Nothing may wait in the queue: the presenter takes the previous frame first.
+    {
+        std::unique_lock<std::mutex> lock(g_present.mutex);
+        g_present.cv.wait_for(lock, std::chrono::milliseconds(100),
+            [] { return g_present.stop || g_present.jobs.empty() || g_present.threadFailed; });
+    }
+    // 2. With VSync the presenter needs the next frame after the one it took is on screen: one
+    // refresh per shown frame, two with frame generation. Start this one so it is done just in time
+    // (render time plus a margin), with input as fresh as possible.
+    double refresh = g_present.refreshPeriod.load();
+    double render = g_present.renderTime.load();
+    if (g_present.vsync && g_vk.presentWait && refresh > 0.0 && render > 0.0) {
+        double cycle = refresh * (g_present.lastInterpolated ? 2.0 : 1.0);
+        double target = g_present.lastTake.load() + cycle - render * 1.1 - 0.002;
+        double wait = target - now();
+        if (wait > 0.0 && wait < 0.05) {
+            sleepUntil(target);
+        }
+    }
+    g_present.frameStart = now();
 }
 
 IRISDLSS_API void irisdlss_presenter_set_vsync(int32_t vsync) {
@@ -1675,6 +1847,18 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
         return fail(IRISDLSS_DEVICE_FAILED, g_present.threadError);
     }
     double t = now();
+    if (t - g_present.refreshChecked > 1.0) {
+        // The window can move between monitors: refresh rate of the one it is on now.
+        g_present.refreshChecked = t;
+        MONITORINFOEXW monitor{};
+        monitor.cbSize = sizeof(monitor);
+        DEVMODEW mode{};
+        mode.dmSize = sizeof(mode);
+        if (GetMonitorInfoW(MonitorFromWindow(g_present.window, MONITOR_DEFAULTTONEAREST), &monitor)
+            && EnumDisplaySettingsW(monitor.szDevice, ENUM_CURRENT_SETTINGS, &mode) && mode.dmDisplayFrequency > 1) {
+            g_present.refreshPeriod = 1.0 / mode.dmDisplayFrequency;
+        }
+    }
     if (g_present.lastFrame > 0.0) {
         double dt = t - g_present.lastFrame;
         dt = dt < 1.0 / 1000.0 ? 1.0 / 1000.0 : dt > 0.1 ? 0.1 : dt;
@@ -1802,10 +1986,11 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
     }
 
     uint64_t value = ++g_present.timelineValue;
+    g_present.started[value % Presenter::kStartedRing] = g_present.frameStart;
     {
         std::lock_guard<std::mutex> lock(g_present.mutex);
         slot.busy = true;
-        g_present.jobs.push_back({slotIndex, useFg && NVSDK_NGX_SUCCEED(fgResult), value, t});
+        g_present.jobs.push_back({slotIndex, useFg && NVSDK_NGX_SUCCEED(fgResult), value, t, g_present.frameStart});
     }
     g_present.cv.notify_all();
     g_present.nextSlot = (slotIndex + 1) % kSlotCount;

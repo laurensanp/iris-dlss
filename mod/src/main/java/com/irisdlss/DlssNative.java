@@ -50,6 +50,9 @@ public final class DlssNative {
 
     public static native void setVsync(boolean vsync);
 
+    /** Start of the game's frame (before input): low-latency wait for the presenter. */
+    public static native void frameStart();
+
     /** VkSemaphore (timeline) to signal with present()'s value in the frame's submission. */
     public static native long presenterTimeline();
 

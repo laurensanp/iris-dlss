@@ -6,6 +6,7 @@
   "client": [
     "CameraMixin",
     "GameRendererMixin",
+    "MinecraftMixin",
     "DebugEntrySystemSpecsMixin",
     "PreferredGraphicsApiMixin",
     "VideoSettingsScreenMixin",

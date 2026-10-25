@@ -113,6 +113,10 @@ IRISDLSS_API void irisdlss_presenter_destroy();
 
 IRISDLSS_API void irisdlss_presenter_set_vsync(int32_t vsync);
 
+// Start of the game's frame, before it reads input: waits until the presenter took the previous
+// frame and, with VSync, until this frame can be finished just in time (keeps latency low).
+IRISDLSS_API void irisdlss_presenter_frame_start();
+
 // Timeline semaphore the game's submission signals once a presented frame is rendered.
 IRISDLSS_API uint64_t irisdlss_presenter_timeline();
 

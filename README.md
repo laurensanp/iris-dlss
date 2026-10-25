@@ -40,6 +40,15 @@ submit signals a timeline semaphore ──────────────�
 * RenderPearl keeps every image in GENERAL and stores them bottom row first (like OpenGL); the
   bridge transitions images around NGX calls and flips when it blits to its swapchain.
 * NGX features are released three frame submissions after their last use.
+* Frame pacing: with VSync the presenter waits (`VK_KHR_present_wait`) until the generated frame is
+  on screen before showing the real one, so each gets one refresh. Like NVIDIA Reflex, the game
+  starts each frame (before reading input) only when the presenter is about to need it: render time
+  is measured up to GPU completion, the cycle comes from the monitor's refresh rate. Measured at
+  165 Hz: 165 fps shown from 83 rendered, 6.1 ± 0.8 ms between frames, ~20 ms latency (before:
+  6.1 ± 6.0 ms, 35 ms).
+* The hand pass clears the main depth buffer, so the world's depth is copied before it; motion
+  vectors use it, the hand gets zero motion, and DLSS / DLSS-G get world + hand depth.
+* F3 shows shown / rendered fps, pacing and latency.
 * Motion vectors are reconstructed from depth and the camera only (no per-object motion yet).
 * Depth convention: vanilla 26.3 is reverse-Z (`DepthConvention`).
 
@@ -75,6 +84,12 @@ gradlew runClient                                         :: dev client in mod\r
 
 The jar bundles `irisdlss.dll` and NVIDIA's `nvngx_dlss.dll` / `nvngx_dlssg.dll` (redistributed
 under the NVIDIA DLSS SDK license, copied as `NVIDIA_DLSS_LICENSE.txt`).
+
+## Debugging (dev client)
+
+`gradlew runClient -PdlssDebug=spin` (or `=walk`) turns the camera / walks forward and writes the
+generated and real frames, motion vectors and depth of four frame-generated presents to
+`mod/run/iris-dlss/captures`. `dlss_probe.exe [vsync]` reports pacing and latency without the game.
 
 ## Known issues / where help is needed
 
