@@ -21,10 +21,10 @@ public final class DlssBenchmark {
         new Mode("SR Quality + FG", true, DlssConfig.Quality.QUALITY, true, DlssConfig.Preset.K),
         new Mode("SR Quality", true, DlssConfig.Quality.QUALITY, false, DlssConfig.Preset.K),
         new Mode("SR Performance", true, DlssConfig.Quality.PERFORMANCE, false, DlssConfig.Preset.K),
+        new Mode("SR Custom 80 %", true, DlssConfig.Quality.CUSTOM, false, DlssConfig.Preset.K),
         new Mode("SR Quality, preset L", true, DlssConfig.Quality.QUALITY, false, DlssConfig.Preset.L),
-        new Mode("SR Performance, preset L", true, DlssConfig.Quality.PERFORMANCE, false, DlssConfig.Preset.L),
+        new Mode("SR Performance, preset M", true, DlssConfig.Quality.PERFORMANCE, false, DlssConfig.Preset.M),
         new Mode("SR Quality, preset E", true, DlssConfig.Quality.QUALITY, false, DlssConfig.Preset.E),
-        new Mode("SR Quality + FG, preset E", true, DlssConfig.Quality.QUALITY, true, DlssConfig.Preset.E),
         new Mode("DLAA", true, DlssConfig.Quality.DLAA, false, DlssConfig.Preset.K),
         new Mode("DLSS off", false, DlssConfig.Quality.QUALITY, false, DlssConfig.Preset.K),
         new Mode("SR Quality + FG (again)", true, DlssConfig.Quality.QUALITY, true, DlssConfig.Preset.K),
@@ -101,6 +101,7 @@ public final class DlssBenchmark {
         DlssConfig.quality = m.quality;
         DlssConfig.frameGeneration = m.frameGeneration;
         DlssConfig.preset = m.preset;
+        DlssConfig.renderScale = 80;
         if (m.frameGeneration) {
             DlssConfig.vulkanPresent = true;
         }
