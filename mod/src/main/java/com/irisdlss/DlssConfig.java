@@ -88,7 +88,7 @@ public final class DlssConfig {
     public static float handDistance = 0.8F;
     public static float jitterSignX = 1.0F;
     public static float jitterSignY = 1.0F;
-    /** Show frames through a Vulkan swapchain instead of the OpenGL swap (needed for frame generation). */
+    /** Show frames through the bridge's presenter instead of the game's swapchain (needed for frame generation). */
     public static boolean vulkanPresent = true;
     /** DLSS Frame Generation: one generated frame between two rendered ones. */
     public static boolean frameGeneration = true;

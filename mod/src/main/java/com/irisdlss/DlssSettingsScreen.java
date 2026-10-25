@@ -54,7 +54,7 @@ public class DlssSettingsScreen extends Screen {
                 DlssConfig.save();
             }));
         this.addRenderableWidget(CycleButton.onOffBuilder(DlssConfig.vulkanPresent)
-            .create(right, y, WIDTH, HEIGHT, Component.literal("Vulkan output"), (button, value) -> {
+            .create(right, y, WIDTH, HEIGHT, Component.literal("DLSS presenter"), (button, value) -> {
                 DlssConfig.vulkanPresent = value;
                 if (!value) {
                     DlssConfig.frameGeneration = false;

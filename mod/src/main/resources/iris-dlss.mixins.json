@@ -7,9 +7,16 @@
     "CameraMixin",
     "GameRendererMixin",
     "DebugEntrySystemSpecsMixin",
-    "GlSamplerMixin",
-    "GlSurfaceMixin",
-    "VideoSettingsScreenMixin"
+    "PreferredGraphicsApiMixin",
+    "VideoSettingsScreenMixin",
+    "VulkanBackendMixin",
+    "VulkanCommandEncoderAccessor",
+    "VulkanCommandEncoderMixin",
+    "VulkanConstMixin",
+    "VulkanDeviceMixin",
+    "VulkanGpuSamplerMixin",
+    "VulkanGpuSurfaceMixin",
+    "VulkanInstanceMixin"
   ],
   "injectors": {
     "defaultRequire": 1

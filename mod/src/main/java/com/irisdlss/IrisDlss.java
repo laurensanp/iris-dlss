@@ -14,9 +14,23 @@ public class IrisDlss implements ClientModInitializer {
 
     public static final Logger LOGGER = LogUtils.getLogger();
     public static Path nativeDir;
+    private static boolean bootstrapped;
+    private static boolean nativeLoaded;
 
     @Override
     public void onInitializeClient() {
+        bootstrap();
+    }
+
+    /**
+     * Config and native bridge. Idempotent: the Vulkan device mixins may need it before the client
+     * entrypoint runs.
+     */
+    public static synchronized void bootstrap() {
+        if (bootstrapped) {
+            return;
+        }
+        bootstrapped = true;
         DlssConfig.load(FabricLoader.getInstance().getConfigDir().resolve("iris-dlss.properties"));
         nativeDir = FabricLoader.getInstance().getGameDir().resolve("iris-dlss");
         try {
@@ -38,6 +52,8 @@ public class IrisDlss implements ClientModInitializer {
                 }
             }
             System.load(nativeDir.resolve("irisdlss.dll").toAbsolutePath().toString());
+            DlssNative.setDataPath(nativeDir.toAbsolutePath().toString());
+            nativeLoaded = true;
             if (DlssConfig.enabled) {
                 ShaderPackTweaks.disablePackTaa(FabricLoader.getInstance().getGameDir());
             }
@@ -45,5 +61,15 @@ public class IrisDlss implements ClientModInitializer {
             LOGGER.error("Iris DLSS: could not load the native bridge, DLSS stays off", e);
             DlssConfig.enabled = false;
         }
+    }
+
+    public static boolean isNativeLoaded() {
+        return nativeLoaded;
+    }
+
+    /** The bridge is loaded and DLSS is wanted: the game's Vulkan device should be made for it. */
+    public static boolean nativeReady() {
+        bootstrap();
+        return nativeLoaded && DlssConfig.enabled;
     }
 }

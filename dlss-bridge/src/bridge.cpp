@@ -27,27 +27,30 @@ namespace {
 // Identifies this integration to NGX (custom engine, no NVIDIA application id).
 constexpr const char* kProjectId = "6f1c3a52-6a8b-4d1e-9a0d-2f7b5c9e1a44";
 constexpr const char* kEngineVersion = "26.3";
+// Frames the game keeps in flight (RenderPearl waits for submit N-2), plus one of margin.
+constexpr uint64_t kRetireFrames = 3;
 
 std::string g_message;
+std::wstring g_dataPath;
 
 struct Vk {
-    HMODULE loader = nullptr;
-    PFN_vkGetInstanceProcAddr getInstanceProcAddr = nullptr;
-    PFN_vkGetDeviceProcAddr getDeviceProcAddr = nullptr;
-    PFN_vkCreateInstance createInstance = nullptr;
-    PFN_vkDestroyInstance destroyInstance = nullptr;
-    PFN_vkEnumeratePhysicalDevices enumeratePhysicalDevices = nullptr;
-    PFN_vkGetPhysicalDeviceProperties2 getPhysicalDeviceProperties2 = nullptr;
-    PFN_vkGetPhysicalDeviceQueueFamilyProperties getQueueFamilyProperties = nullptr;
-    PFN_vkEnumerateDeviceExtensionProperties enumerateDeviceExtensions = nullptr;
-    PFN_vkCreateDevice createDevice = nullptr;
-    PFN_vkDestroyDevice destroyDevice = nullptr;
-    PFN_vkGetDeviceQueue getDeviceQueue = nullptr;
-    PFN_vkDeviceWaitIdle deviceWaitIdle = nullptr;
+    PFN_vkGetInstanceProcAddr gipa = nullptr;
+    PFN_vkGetDeviceProcAddr gdpa = nullptr;
 
+    // Instance-level functions.
+    PFN_vkGetPhysicalDeviceProperties2 getPhysicalDeviceProperties2 = nullptr;
     PFN_vkGetPhysicalDeviceMemoryProperties getMemoryProperties = nullptr;
+    PFN_vkCreateWin32SurfaceKHR createWin32Surface = nullptr;
+    PFN_vkDestroySurfaceKHR destroySurface = nullptr;
+    PFN_vkGetPhysicalDeviceSurfaceSupportKHR getSurfaceSupport = nullptr;
+    PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR getSurfaceCapabilities = nullptr;
+    PFN_vkGetPhysicalDeviceSurfaceFormatsKHR getSurfaceFormats = nullptr;
+    PFN_vkGetPhysicalDeviceSurfacePresentModesKHR getSurfacePresentModes = nullptr;
 
     // Device-level functions.
+    PFN_vkGetDeviceQueue getDeviceQueue = nullptr;
+    PFN_vkDeviceWaitIdle deviceWaitIdle = nullptr;
+    PFN_vkQueueWaitIdle queueWaitIdle = nullptr;
     PFN_vkCreateImage createImage = nullptr;
     PFN_vkDestroyImage destroyImage = nullptr;
     PFN_vkGetImageMemoryRequirements getImageMemoryRequirements = nullptr;
@@ -56,10 +59,9 @@ struct Vk {
     PFN_vkBindImageMemory bindImageMemory = nullptr;
     PFN_vkCreateImageView createImageView = nullptr;
     PFN_vkDestroyImageView destroyImageView = nullptr;
-    PFN_vkGetMemoryWin32HandleKHR getMemoryWin32Handle = nullptr;
     PFN_vkCreateSemaphore createSemaphore = nullptr;
     PFN_vkDestroySemaphore destroySemaphore = nullptr;
-    PFN_vkGetSemaphoreWin32HandleKHR getSemaphoreWin32Handle = nullptr;
+    PFN_vkWaitSemaphores waitSemaphores = nullptr;
     PFN_vkCreateCommandPool createCommandPool = nullptr;
     PFN_vkDestroyCommandPool destroyCommandPool = nullptr;
     PFN_vkAllocateCommandBuffers allocateCommandBuffers = nullptr;
@@ -67,97 +69,55 @@ struct Vk {
     PFN_vkBeginCommandBuffer beginCommandBuffer = nullptr;
     PFN_vkEndCommandBuffer endCommandBuffer = nullptr;
     PFN_vkCmdPipelineBarrier cmdPipelineBarrier = nullptr;
+    PFN_vkCmdCopyImage cmdCopyImage = nullptr;
+    PFN_vkCmdBlitImage cmdBlitImage = nullptr;
     PFN_vkQueueSubmit queueSubmit = nullptr;
     PFN_vkCreateFence createFence = nullptr;
     PFN_vkDestroyFence destroyFence = nullptr;
     PFN_vkWaitForFences waitForFences = nullptr;
     PFN_vkResetFences resetFences = nullptr;
-    PFN_vkQueueWaitIdle queueWaitIdle = nullptr;
-    PFN_vkCmdCopyImage cmdCopyImage = nullptr;
-    PFN_vkCmdBlitImage cmdBlitImage = nullptr;
-    PFN_vkFreeCommandBuffers freeCommandBuffers = nullptr;
-
-    // Presentation.
-    PFN_vkCreateWin32SurfaceKHR createWin32Surface = nullptr;
-    PFN_vkDestroySurfaceKHR destroySurface = nullptr;
-    PFN_vkGetPhysicalDeviceSurfaceSupportKHR getSurfaceSupport = nullptr;
-    PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR getSurfaceCapabilities = nullptr;
-    PFN_vkGetPhysicalDeviceSurfaceFormatsKHR getSurfaceFormats = nullptr;
-    PFN_vkGetPhysicalDeviceSurfacePresentModesKHR getSurfacePresentModes = nullptr;
     PFN_vkCreateSwapchainKHR createSwapchain = nullptr;
     PFN_vkDestroySwapchainKHR destroySwapchain = nullptr;
     PFN_vkGetSwapchainImagesKHR getSwapchainImages = nullptr;
     PFN_vkAcquireNextImageKHR acquireNextImage = nullptr;
     PFN_vkQueuePresentKHR queuePresent = nullptr;
 
+    // The game's objects (never destroyed here).
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
     uint32_t queueFamily = 0;
-    VkQueue queue = VK_NULL_HANDLE;
-    // Second queue of the same family for the presenter thread (== queue if the family has one).
-    VkQueue presentQueue = VK_NULL_HANDLE;
+    VkQueue queue = VK_NULL_HANDLE;         // the game's graphics queue (index 0 of the family)
+    int32_t presentQueueIndex = -1;         // our extra queue in that family, -1 if there was none
+    VkQueue presentQueue = VK_NULL_HANDLE;  // used only by the presenter thread
+    uint32_t opticalFlowFamily = UINT32_MAX;
+    std::string deviceName;
+    std::string fgExtensionsMissing;
+
     bool ngxInitialized = false;
     NVSDK_NGX_Parameter* capabilities = nullptr;
-
-    VkCommandPool commandPool = VK_NULL_HANDLE;
-    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
-
-    uint32_t opticalFlowFamily = UINT32_MAX;
-    std::vector<std::string> fgExtensionNames;
-    std::string fgExtensionsMissing;
 };
 
-struct SharedImage {
-    VkImage image = VK_NULL_HANDLE;
-    VkDeviceMemory memory = VK_NULL_HANDLE;
-    VkImageView view = VK_NULL_HANDLE;
-    VkFormat format = VK_FORMAT_UNDEFINED;
-    uint32_t width = 0;
-    uint32_t height = 0;
-};
-
-struct Frame {
-    SharedImage images[IRISDLSS_IMAGE_COUNT];
-    VkSemaphore glDone = VK_NULL_HANDLE;
-    VkSemaphore vkDone = VK_NULL_HANDLE;
-    NVSDK_NGX_Handle* dlss = nullptr;
+struct Dlss {
+    NVSDK_NGX_Handle* handle = nullptr;
     NVSDK_NGX_Parameter* params = nullptr;
-    bool fenceInFlight = false;
+    uint32_t renderWidth = 0;
+    uint32_t renderHeight = 0;
+    uint32_t outWidth = 0;
+    uint32_t outHeight = 0;
+};
+
+// NGX features released once no frame in flight can still use them.
+struct Retired {
+    NVSDK_NGX_Handle* handle;
+    NVSDK_NGX_Parameter* params;
+    uint64_t frame;
 };
 
 Vk g_vk;
-Frame g_frame;
-
-// Queue submissions are externally synchronized; only needed when the presenter shares the queue.
-std::mutex g_queueMutex;
-
-std::unique_lock<std::mutex> lockQueue(VkQueue queue) {
-    std::unique_lock<std::mutex> lock(g_queueMutex, std::defer_lock);
-    if (g_vk.presentQueue == g_vk.queue && queue == g_vk.queue) {
-        lock.lock();
-    }
-    return lock;
-}
-
-VkResult submitTo(VkQueue queue, const VkSubmitInfo& info, VkFence fence) {
-    auto lock = lockQueue(queue);
-    return g_vk.queueSubmit(queue, 1, &info, fence);
-}
-
-void releaseFrameGeneration();
-
-template <typename T>
-bool load(T& fn, const char* name) {
-    fn = reinterpret_cast<T>(g_vk.getInstanceProcAddr(g_vk.instance, name));
-    return fn != nullptr;
-}
-
-template <typename T>
-void loadDevice(T& fn, const char* name) {
-    fn = reinterpret_cast<T>(g_vk.getDeviceProcAddr(g_vk.device, name));
-}
+Dlss g_dlss;
+std::vector<Retired> g_retired;
+uint64_t g_frameCounter = 0;
 
 std::string narrow(const wchar_t* text) {
     if (!text) {
@@ -191,223 +151,375 @@ bool hasExtension(const std::vector<VkExtensionProperties>& available, const cha
     return false;
 }
 
+void addUnique(std::vector<const char*>& list, const char* name) {
+    for (const char* existing : list) {
+        if (std::strcmp(existing, name) == 0) {
+            return;
+        }
+    }
+    list.push_back(name);
+}
+
+template <typename T>
+void loadInstance(T& fn, const char* name) {
+    fn = reinterpret_cast<T>(g_vk.gipa(g_vk.instance, name));
+}
+
+template <typename T>
+void loadDevice(T& fn, const char* name) {
+    fn = reinterpret_cast<T>(g_vk.gdpa(g_vk.device, name));
+}
+
+// DLSS-G's discovery info (its extension requirements are queried with it).
+NVSDK_NGX_FeatureDiscoveryInfo frameGenerationDiscovery() {
+    static const wchar_t* paths[1];
+    static NVSDK_NGX_FeatureCommonInfo common{};
+    paths[0] = g_dataPath.c_str();
+    common.PathListInfo.Path = paths;
+    common.PathListInfo.Length = 1;
+    NVSDK_NGX_FeatureDiscoveryInfo discovery{};
+    discovery.SDKVersion = NVSDK_NGX_Version_API;
+    discovery.FeatureID = NVSDK_NGX_Feature_FrameGeneration;
+    discovery.Identifier.IdentifierType = NVSDK_NGX_Application_Identifier_Type_Project_Id;
+    discovery.Identifier.v.ProjectDesc.ProjectId = kProjectId;
+    discovery.Identifier.v.ProjectDesc.EngineType = NVSDK_NGX_ENGINE_TYPE_CUSTOM;
+    discovery.Identifier.v.ProjectDesc.EngineVersion = kEngineVersion;
+    discovery.ApplicationDataPath = g_dataPath.c_str();
+    discovery.FeatureInfo = &common;
+    return discovery;
+}
+
+void retire(NVSDK_NGX_Handle* handle, NVSDK_NGX_Parameter* params) {
+    if (handle || params) {
+        g_retired.push_back({handle, params, g_frameCounter});
+    }
+}
+
+void releaseRetired(bool all) {
+    for (size_t i = 0; i < g_retired.size();) {
+        if (all || g_frameCounter - g_retired[i].frame >= kRetireFrames) {
+            if (g_retired[i].handle) NVSDK_NGX_VULKAN_ReleaseFeature(g_retired[i].handle);
+            if (g_retired[i].params) NVSDK_NGX_VULKAN_DestroyParameters(g_retired[i].params);
+            g_retired.erase(g_retired.begin() + static_cast<std::ptrdiff_t>(i));
+        } else {
+            i++;
+        }
+    }
+}
+
+bool isDepthFormat(VkFormat format) {
+    return format == VK_FORMAT_D16_UNORM || format == VK_FORMAT_X8_D24_UNORM_PACK32 || format == VK_FORMAT_D32_SFLOAT
+        || format == VK_FORMAT_D16_UNORM_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT
+        || format == VK_FORMAT_D32_SFLOAT_S8_UINT;
+}
+
+bool hasStencil(VkFormat format) {
+    return format == VK_FORMAT_D16_UNORM_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT
+        || format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_S8_UINT;
+}
+
+// Subresource of the image a view / NGX resource covers (depth only for depth formats).
+VkImageSubresourceRange viewRange(VkFormat format) {
+    return {isDepthFormat(format) ? VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT) : VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
+        0, 1, 0, 1};
+}
+
+VkImageMemoryBarrier barrier(VkImage image, VkFormat format, VkImageLayout from, VkImageLayout to) {
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT;
+    b.dstAccessMask = VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT;
+    b.oldLayout = from;
+    b.newLayout = to;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = image;
+    b.subresourceRange = viewRange(format);
+    if (hasStencil(format)) {
+        // Barriers on a combined depth/stencil image cover both aspects.
+        b.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    }
+    return b;
+}
+
+VkImageMemoryBarrier barrier(const IrisDlssImage& image, VkImageLayout from, VkImageLayout to) {
+    return barrier(reinterpret_cast<VkImage>(image.image), static_cast<VkFormat>(image.format), from, to);
+}
+
+void pipelineBarrier(VkCommandBuffer cmd, uint32_t count, const VkImageMemoryBarrier* barriers) {
+    g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr,
+        0, nullptr, count, barriers);
+}
+
+NVSDK_NGX_Resource_VK resource(const IrisDlssImage& image, bool readWrite) {
+    VkFormat format = static_cast<VkFormat>(image.format);
+    return NVSDK_NGX_Create_ImageView_Resource_VK(reinterpret_cast<VkImageView>(image.view),
+        reinterpret_cast<VkImage>(image.image), viewRange(format), format, image.width, image.height, readWrite);
+}
+
 }  // namespace
 
 IRISDLSS_API const char* irisdlss_last_message() {
     return g_message.c_str();
 }
 
-IRISDLSS_API int32_t irisdlss_init(const uint8_t* deviceUuid, const wchar_t* dataPath) {
+IRISDLSS_API void irisdlss_set_data_path(const wchar_t* dataPath) {
+    g_dataPath = dataPath ? dataPath : L"";
+}
+
+// ---- Device creation ----------------------------------------------------------------------------
+
+IRISDLSS_API int32_t irisdlss_create_instance(uint64_t gipaAddress, const void* createInfo, const void* allocator,
+    void* outInstance) {
+    auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(gipaAddress);
+    auto createInstance = reinterpret_cast<PFN_vkCreateInstance>(gipa(nullptr, "vkCreateInstance"));
+    auto enumerate = reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(
+        gipa(nullptr, "vkEnumerateInstanceExtensionProperties"));
+    const auto* info = static_cast<const VkInstanceCreateInfo*>(createInfo);
+    const auto* callbacks = static_cast<const VkAllocationCallbacks*>(allocator);
+    auto* instance = static_cast<VkInstance*>(outInstance);
+
+    uint32_t count = 0;
+    enumerate(nullptr, &count, nullptr);
+    std::vector<VkExtensionProperties> available(count);
+    enumerate(nullptr, &count, available.data());
+
+    std::vector<const char*> names(info->ppEnabledExtensionNames,
+        info->ppEnabledExtensionNames + info->enabledExtensionCount);
+    unsigned int ngxInstanceCount = 0, ngxDeviceCount = 0;
+    const char** ngxInstanceExts = nullptr;
+    const char** ngxDeviceExts = nullptr;
+    NVSDK_NGX_VULKAN_RequiredExtensions(&ngxInstanceCount, &ngxInstanceExts, &ngxDeviceCount, &ngxDeviceExts);
+    for (unsigned int i = 0; i < ngxInstanceCount; i++) {
+        if (hasExtension(available, ngxInstanceExts[i])) {
+            addUnique(names, ngxInstanceExts[i]);
+        }
+    }
+    NVSDK_NGX_FeatureDiscoveryInfo discovery = frameGenerationDiscovery();
+    uint32_t fgCount = 0;
+    VkExtensionProperties* fgExts = nullptr;
+    if (NVSDK_NGX_SUCCEED(NVSDK_NGX_VULKAN_GetFeatureInstanceExtensionRequirements(&discovery, &fgCount, &fgExts))) {
+        for (uint32_t i = 0; i < fgCount; i++) {
+            if (hasExtension(available, fgExts[i].extensionName)) {
+                addUnique(names, fgExts[i].extensionName);
+            }
+        }
+    }
+
+    VkInstanceCreateInfo patched = *info;
+    patched.enabledExtensionCount = static_cast<uint32_t>(names.size());
+    patched.ppEnabledExtensionNames = names.data();
+    VkResult result = createInstance(&patched, callbacks, instance);
+    if (result != VK_SUCCESS && names.size() != info->enabledExtensionCount) {
+        result = createInstance(info, callbacks, instance);
+    }
+    return result;
+}
+
+IRISDLSS_API int32_t irisdlss_create_device(uint64_t gipaAddress, uint64_t instanceHandle, uint64_t physicalHandle,
+    const void* createInfo, const void* allocator, void* outDevice) {
+    auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(gipaAddress);
+    auto instance = reinterpret_cast<VkInstance>(instanceHandle);
+    auto physical = reinterpret_cast<VkPhysicalDevice>(physicalHandle);
+    const auto* info = static_cast<const VkDeviceCreateInfo*>(createInfo);
+    const auto* callbacks = static_cast<const VkAllocationCallbacks*>(allocator);
+    auto* device = static_cast<VkDevice*>(outDevice);
+    auto createDevice = reinterpret_cast<PFN_vkCreateDevice>(gipa(instance, "vkCreateDevice"));
+    auto queueFamilies = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(
+        gipa(instance, "vkGetPhysicalDeviceQueueFamilyProperties"));
+    auto enumerate = reinterpret_cast<PFN_vkEnumerateDeviceExtensionProperties>(
+        gipa(instance, "vkEnumerateDeviceExtensionProperties"));
+    auto features2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(gipa(instance, "vkGetPhysicalDeviceFeatures2"));
+    auto properties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
+        gipa(instance, "vkGetPhysicalDeviceProperties2"));
+
+    VkPhysicalDeviceProperties2 props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    properties2(physical, &props);
+    if (props.properties.vendorID != 0x10DE) {
+        g_message = std::string("not an NVIDIA GPU: ") + props.properties.deviceName;
+        return createDevice(physical, info, callbacks, device);
+    }
+
+    // Extensions: the game's, NGX's and DLSS-G's (those the GPU has).
+    uint32_t count = 0;
+    enumerate(physical, nullptr, &count, nullptr);
+    std::vector<VkExtensionProperties> available(count);
+    enumerate(physical, nullptr, &count, available.data());
+    std::vector<const char*> names(info->ppEnabledExtensionNames,
+        info->ppEnabledExtensionNames + info->enabledExtensionCount);
+    unsigned int ngxInstanceCount = 0, ngxDeviceCount = 0;
+    const char** ngxInstanceExts = nullptr;
+    const char** ngxDeviceExts = nullptr;
+    NVSDK_NGX_VULKAN_RequiredExtensions(&ngxInstanceCount, &ngxInstanceExts, &ngxDeviceCount, &ngxDeviceExts);
+    for (unsigned int i = 0; i < ngxDeviceCount; i++) {
+        if (hasExtension(available, ngxDeviceExts[i])) {
+            addUnique(names, ngxDeviceExts[i]);
+        }
+    }
+    NVSDK_NGX_FeatureDiscoveryInfo discovery = frameGenerationDiscovery();
+    uint32_t fgCount = 0;
+    VkExtensionProperties* fgExts = nullptr;
+    std::vector<std::string> fgNames;
+    g_vk.fgExtensionsMissing.clear();
+    if (NVSDK_NGX_SUCCEED(NVSDK_NGX_VULKAN_GetFeatureDeviceExtensionRequirements(instance, physical, &discovery,
+            &fgCount, &fgExts))) {
+        for (uint32_t i = 0; i < fgCount; i++) {
+            if (hasExtension(available, fgExts[i].extensionName)) {
+                fgNames.emplace_back(fgExts[i].extensionName);
+            } else {
+                g_vk.fgExtensionsMissing += std::string(fgExts[i].extensionName) + " ";
+            }
+        }
+    }
+    for (const std::string& name : fgNames) {
+        addUnique(names, name.c_str());
+    }
+    bool opticalFlowExt = hasExtension(available, VK_NV_OPTICAL_FLOW_EXTENSION_NAME);
+    if (opticalFlowExt) {
+        addUnique(names, VK_NV_OPTICAL_FLOW_EXTENSION_NAME);
+    }
+
+    // Features: buffer device address (NGX) and optical flow (DLSS-G), set in the game's own feature
+    // structs where it has them, otherwise in structs placed in front of its chain.
+    VkPhysicalDeviceOpticalFlowFeaturesNV opticalFlowSupported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPTICAL_FLOW_FEATURES_NV};
+    VkPhysicalDeviceVulkan12Features vk12Supported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    vk12Supported.pNext = opticalFlowExt ? &opticalFlowSupported : nullptr;
+    VkPhysicalDeviceFeatures2 supported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    supported.pNext = &vk12Supported;
+    features2(physical, &supported);
+
+    VkPhysicalDeviceVulkan12Features* gameVk12 = nullptr;
+    VkPhysicalDeviceBufferDeviceAddressFeatures* gameBda = nullptr;
+    VkPhysicalDeviceOpticalFlowFeaturesNV* gameOpticalFlow = nullptr;
+    for (auto* s = static_cast<VkBaseOutStructure*>(const_cast<void*>(info->pNext)); s; s = s->pNext) {
+        if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES) {
+            gameVk12 = reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(s);
+        } else if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES) {
+            gameBda = reinterpret_cast<VkPhysicalDeviceBufferDeviceAddressFeatures*>(s);
+        } else if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPTICAL_FLOW_FEATURES_NV) {
+            gameOpticalFlow = reinterpret_cast<VkPhysicalDeviceOpticalFlowFeaturesNV*>(s);
+        }
+    }
+    const void* chain = info->pNext;
+    VkPhysicalDeviceBufferDeviceAddressFeatures extraBda{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES};
+    VkPhysicalDeviceOpticalFlowFeaturesNV extraOpticalFlow{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPTICAL_FLOW_FEATURES_NV};
+    if (vk12Supported.bufferDeviceAddress) {
+        if (gameVk12) {
+            gameVk12->bufferDeviceAddress = VK_TRUE;
+        } else if (gameBda) {
+            gameBda->bufferDeviceAddress = VK_TRUE;
+        } else {
+            extraBda.bufferDeviceAddress = VK_TRUE;
+            extraBda.pNext = const_cast<void*>(chain);
+            chain = &extraBda;
+        }
+    }
+    if (opticalFlowExt && opticalFlowSupported.opticalFlow) {
+        if (gameOpticalFlow) {
+            gameOpticalFlow->opticalFlow = VK_TRUE;
+        } else {
+            extraOpticalFlow.opticalFlow = VK_TRUE;
+            extraOpticalFlow.pNext = const_cast<void*>(chain);
+            chain = &extraOpticalFlow;
+        }
+    }
+
+    // Queues: one more in the graphics family for the presenter thread, plus an optical-flow queue.
+    uint32_t familyCount = 0;
+    queueFamilies(physical, &familyCount, nullptr);
+    std::vector<VkQueueFamilyProperties> families(familyCount);
+    queueFamilies(physical, &familyCount, families.data());
+    std::vector<VkDeviceQueueCreateInfo> queues(info->pQueueCreateInfos,
+        info->pQueueCreateInfos + info->queueCreateInfoCount);
+    std::vector<float> presentPriorities;
+    static const float kOnePriority = 1.0f;
+    int graphics = -1;
+    for (size_t i = 0; i < queues.size(); i++) {
+        VkQueueFlags flags = families[queues[i].queueFamilyIndex].queueFlags;
+        if ((flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) == (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) {
+            graphics = static_cast<int>(i);
+            break;
+        }
+    }
+    if (graphics < 0) {
+        g_message = "the game's device has no graphics queue";
+        return createDevice(physical, info, callbacks, device);
+    }
+    VkDeviceQueueCreateInfo& graphicsQueues = queues[graphics];
+    const uint32_t graphicsFamily = graphicsQueues.queueFamilyIndex;
+    int32_t presentIndex = -1;
+    if (families[graphicsQueues.queueFamilyIndex].queueCount > graphicsQueues.queueCount) {
+        presentPriorities.assign(graphicsQueues.pQueuePriorities,
+            graphicsQueues.pQueuePriorities + graphicsQueues.queueCount);
+        presentPriorities.push_back(graphicsQueues.queueCount > 0 ? graphicsQueues.pQueuePriorities[0] : 1.0f);
+        presentIndex = static_cast<int32_t>(graphicsQueues.queueCount);
+        graphicsQueues.queueCount++;
+        graphicsQueues.pQueuePriorities = presentPriorities.data();
+    }
+    uint32_t opticalFlowFamily = UINT32_MAX;
+    for (uint32_t i = 0; i < familyCount; i++) {
+        if (i != graphicsFamily && (families[i].queueFlags & VK_QUEUE_OPTICAL_FLOW_BIT_NV)) {
+            opticalFlowFamily = i;
+            break;
+        }
+    }
+    if (opticalFlowFamily != UINT32_MAX) {
+        bool listed = false;
+        for (const auto& q : queues) {
+            listed |= q.queueFamilyIndex == opticalFlowFamily;
+        }
+        if (!listed) {
+            VkDeviceQueueCreateInfo q{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+            q.queueFamilyIndex = opticalFlowFamily;
+            q.queueCount = 1;
+            q.pQueuePriorities = &kOnePriority;
+            queues.push_back(q);  // graphicsQueues is not used past this point
+        }
+    }
+
+    VkDeviceCreateInfo patched = *info;
+    patched.pNext = chain;
+    patched.queueCreateInfoCount = static_cast<uint32_t>(queues.size());
+    patched.pQueueCreateInfos = queues.data();
+    patched.enabledExtensionCount = static_cast<uint32_t>(names.size());
+    patched.ppEnabledExtensionNames = names.data();
+    VkResult result = createDevice(physical, &patched, callbacks, device);
+    if (result != VK_SUCCESS) {
+        g_message = "vkCreateDevice with the DLSS extensions failed (" + std::to_string(result) + ")";
+        return createDevice(physical, info, callbacks, device);
+    }
+
+    g_vk.gipa = gipa;
+    g_vk.instance = instance;
+    g_vk.physicalDevice = physical;
+    g_vk.device = *device;
+    g_vk.queueFamily = graphicsFamily;
+    g_vk.presentQueueIndex = presentIndex;
+    g_vk.opticalFlowFamily = opticalFlowFamily;
+    g_vk.deviceName = props.properties.deviceName;
+    g_message = "DLSS extensions enabled on " + g_vk.deviceName;
+    return result;
+}
+
+IRISDLSS_API int32_t irisdlss_init() {
     if (g_vk.ngxInitialized) {
         return IRISDLSS_OK;
     }
-
-    g_vk.loader = LoadLibraryW(L"vulkan-1.dll");
-    if (!g_vk.loader) {
-        return fail(IRISDLSS_NO_VULKAN, "vulkan-1.dll not found");
+    if (!g_vk.device) {
+        return fail(IRISDLSS_DEVICE_FAILED, g_message.empty()
+            ? "the game's Vulkan device was not created through the bridge (Graphics API not Vulkan?)" : g_message);
     }
-    g_vk.getInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
-        GetProcAddress(g_vk.loader, "vkGetInstanceProcAddr"));
-    if (!g_vk.getInstanceProcAddr || !load(g_vk.createInstance, "vkCreateInstance")) {
-        return fail(IRISDLSS_NO_VULKAN, "vkGetInstanceProcAddr unavailable");
-    }
-
-    // Instance: NGX's required extensions plus capability queries for external memory interop.
-    unsigned int ngxInstanceExtCount = 0, ngxDeviceExtCount = 0;
-    const char** ngxInstanceExts = nullptr;
-    const char** ngxDeviceExts = nullptr;
-    NVSDK_NGX_VULKAN_RequiredExtensions(&ngxInstanceExtCount, &ngxInstanceExts, &ngxDeviceExtCount,
-        &ngxDeviceExts);
-    std::vector<const char*> instanceExts(ngxInstanceExts, ngxInstanceExts + ngxInstanceExtCount);
-    auto addUnique = [](std::vector<const char*>& list, const char* name) {
-        for (const char* existing : list) {
-            if (std::strcmp(existing, name) == 0) {
-                return;
-            }
-        }
-        list.push_back(name);
-    };
-    addUnique(instanceExts, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
-    addUnique(instanceExts, VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
-    addUnique(instanceExts, VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
-    // Presentation through our own swapchain (frame generation needs to control presentation).
-    addUnique(instanceExts, VK_KHR_SURFACE_EXTENSION_NAME);
-    addUnique(instanceExts, VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-
-    // Frame generation's own extension requirements.
-    static const wchar_t* fgPaths[] = {dataPath};
-    static NVSDK_NGX_FeatureCommonInfo fgCommon{};
-    fgCommon.PathListInfo.Path = fgPaths;
-    fgCommon.PathListInfo.Length = 1;
-    NVSDK_NGX_FeatureDiscoveryInfo fgDiscovery{};
-    fgDiscovery.SDKVersion = NVSDK_NGX_Version_API;
-    fgDiscovery.FeatureID = NVSDK_NGX_Feature_FrameGeneration;
-    fgDiscovery.Identifier.IdentifierType = NVSDK_NGX_Application_Identifier_Type_Project_Id;
-    fgDiscovery.Identifier.v.ProjectDesc.ProjectId = kProjectId;
-    fgDiscovery.Identifier.v.ProjectDesc.EngineType = NVSDK_NGX_ENGINE_TYPE_CUSTOM;
-    fgDiscovery.Identifier.v.ProjectDesc.EngineVersion = kEngineVersion;
-    fgDiscovery.ApplicationDataPath = dataPath;
-    fgDiscovery.FeatureInfo = &fgCommon;
-    uint32_t fgInstanceExtCount = 0;
-    VkExtensionProperties* fgInstanceExts = nullptr;
-    if (NVSDK_NGX_SUCCEED(NVSDK_NGX_VULKAN_GetFeatureInstanceExtensionRequirements(&fgDiscovery,
-            &fgInstanceExtCount, &fgInstanceExts))) {
-        for (uint32_t i = 0; i < fgInstanceExtCount; i++) {
-            addUnique(instanceExts, fgInstanceExts[i].extensionName);
-        }
-    }
-
-    VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    app.pApplicationName = "Iris DLSS Bridge";
-    app.apiVersion = VK_API_VERSION_1_3;
-    VkInstanceCreateInfo instanceInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
-    instanceInfo.pApplicationInfo = &app;
-    instanceInfo.enabledExtensionCount = static_cast<uint32_t>(instanceExts.size());
-    instanceInfo.ppEnabledExtensionNames = instanceExts.data();
-    if (g_vk.createInstance(&instanceInfo, nullptr, &g_vk.instance) != VK_SUCCESS) {
-        return fail(IRISDLSS_NO_VULKAN, "vkCreateInstance failed");
-    }
-    load(g_vk.destroyInstance, "vkDestroyInstance");
-    load(g_vk.enumeratePhysicalDevices, "vkEnumeratePhysicalDevices");
-    load(g_vk.getPhysicalDeviceProperties2, "vkGetPhysicalDeviceProperties2");
-    load(g_vk.getQueueFamilyProperties, "vkGetPhysicalDeviceQueueFamilyProperties");
-    load(g_vk.enumerateDeviceExtensions, "vkEnumerateDeviceExtensionProperties");
-    load(g_vk.createDevice, "vkCreateDevice");
-    load(g_vk.destroyDevice, "vkDestroyDevice");
-    load(g_vk.getDeviceQueue, "vkGetDeviceQueue");
-    load(g_vk.deviceWaitIdle, "vkDeviceWaitIdle");
-    load(g_vk.getDeviceProcAddr, "vkGetDeviceProcAddr");
-    load(g_vk.getMemoryProperties, "vkGetPhysicalDeviceMemoryProperties");
-    load(g_vk.createWin32Surface, "vkCreateWin32SurfaceKHR");
-    load(g_vk.destroySurface, "vkDestroySurfaceKHR");
-    load(g_vk.getSurfaceSupport, "vkGetPhysicalDeviceSurfaceSupportKHR");
-    load(g_vk.getSurfaceCapabilities, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
-    load(g_vk.getSurfaceFormats, "vkGetPhysicalDeviceSurfaceFormatsKHR");
-    load(g_vk.getSurfacePresentModes, "vkGetPhysicalDeviceSurfacePresentModesKHR");
-
-    // Physical device: the one OpenGL runs on (same UUID), so memory can be shared.
-    uint32_t count = 0;
-    g_vk.enumeratePhysicalDevices(g_vk.instance, &count, nullptr);
-    std::vector<VkPhysicalDevice> devices(count);
-    g_vk.enumeratePhysicalDevices(g_vk.instance, &count, devices.data());
-    std::string deviceName;
-    for (VkPhysicalDevice candidate : devices) {
-        VkPhysicalDeviceIDProperties id{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
-        VkPhysicalDeviceProperties2 props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
-        props.pNext = &id;
-        g_vk.getPhysicalDeviceProperties2(candidate, &props);
-        bool matches = deviceUuid ? std::memcmp(id.deviceUUID, deviceUuid, VK_UUID_SIZE) == 0
-                                  : props.properties.vendorID == 0x10DE;
-        if (matches) {
-            g_vk.physicalDevice = candidate;
-            deviceName = props.properties.deviceName;
-            break;
-        }
-    }
-    if (!g_vk.physicalDevice) {
-        return fail(IRISDLSS_NO_MATCHING_GPU, "no Vulkan device matches the OpenGL GPU");
-    }
-
-    uint32_t familyCount = 0;
-    g_vk.getQueueFamilyProperties(g_vk.physicalDevice, &familyCount, nullptr);
-    std::vector<VkQueueFamilyProperties> families(familyCount);
-    g_vk.getQueueFamilyProperties(g_vk.physicalDevice, &familyCount, families.data());
-    bool foundQueue = false;
-    for (uint32_t i = 0; i < familyCount; i++) {
-        if ((families[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
-            == (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) {
-            g_vk.queueFamily = i;
-            foundQueue = true;
-            break;
-        }
-    }
-    if (!foundQueue) {
-        return fail(IRISDLSS_DEVICE_FAILED, "no graphics+compute queue");
-    }
-
-    // Device: NGX's extensions plus Win32 external memory / semaphores for the OpenGL interop.
-    uint32_t extCount = 0;
-    g_vk.enumerateDeviceExtensions(g_vk.physicalDevice, nullptr, &extCount, nullptr);
-    std::vector<VkExtensionProperties> available(extCount);
-    g_vk.enumerateDeviceExtensions(g_vk.physicalDevice, nullptr, &extCount, available.data());
-    std::vector<const char*> deviceExts;
-    for (unsigned int i = 0; i < ngxDeviceExtCount; i++) {
-        if (hasExtension(available, ngxDeviceExts[i])) {
-            deviceExts.push_back(ngxDeviceExts[i]);
-        }
-    }
-    for (const char* ext : {VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME, VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
-             VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME, VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
-             VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, VK_KHR_SWAPCHAIN_EXTENSION_NAME}) {
-        if (!hasExtension(available, ext)) {
-            return fail(IRISDLSS_DEVICE_FAILED, std::string("missing device extension ") + ext);
-        }
-        addUnique(deviceExts, ext);
-    }
-    uint32_t fgDeviceExtCount = 0;
-    VkExtensionProperties* fgDeviceExts = nullptr;
-    g_vk.fgExtensionsMissing.clear();
-    if (NVSDK_NGX_SUCCEED(NVSDK_NGX_VULKAN_GetFeatureDeviceExtensionRequirements(g_vk.instance,
-            g_vk.physicalDevice, &fgDiscovery, &fgDeviceExtCount, &fgDeviceExts))) {
-        for (uint32_t i = 0; i < fgDeviceExtCount; i++) {
-            if (hasExtension(available, fgDeviceExts[i].extensionName)) {
-                g_vk.fgExtensionNames.emplace_back(fgDeviceExts[i].extensionName);
-            } else {
-                g_vk.fgExtensionsMissing += std::string(fgDeviceExts[i].extensionName) + " ";
-            }
-        }
-    }
-    for (const std::string& ext : g_vk.fgExtensionNames) {
-        addUnique(deviceExts, ext.c_str());
-    }
-    bool opticalFlow = hasExtension(available, VK_NV_OPTICAL_FLOW_EXTENSION_NAME);
-
-    // Queues: the graphics+compute queue, plus an optical-flow queue if the GPU has one (DLSS-G).
-    g_vk.opticalFlowFamily = UINT32_MAX;
-    for (uint32_t i = 0; i < familyCount; i++) {
-        if (i != g_vk.queueFamily && (families[i].queueFlags & VK_QUEUE_OPTICAL_FLOW_BIT_NV)) {
-            g_vk.opticalFlowFamily = i;
-            break;
-        }
-    }
-    float priorities[2] = {1.0f, 1.0f};
-    uint32_t mainQueueCount = families[g_vk.queueFamily].queueCount >= 2 ? 2 : 1;
-    VkDeviceQueueCreateInfo queueInfos[2]{};
-    queueInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueInfos[0].queueFamilyIndex = g_vk.queueFamily;
-    queueInfos[0].queueCount = mainQueueCount;
-    queueInfos[0].pQueuePriorities = priorities;
-    uint32_t queueInfoCount = 1;
-    if (g_vk.opticalFlowFamily != UINT32_MAX) {
-        queueInfos[1] = queueInfos[0];
-        queueInfos[1].queueFamilyIndex = g_vk.opticalFlowFamily;
-        queueInfos[1].queueCount = 1;
-        queueInfoCount = 2;
-    }
-    VkPhysicalDeviceOpticalFlowFeaturesNV opticalFlowFeatures{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPTICAL_FLOW_FEATURES_NV};
-    opticalFlowFeatures.opticalFlow = VK_TRUE;
-    VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
-    features13.synchronization2 = VK_TRUE;
-    features13.pNext = opticalFlow ? &opticalFlowFeatures : nullptr;
-    if (opticalFlow) {
-        addUnique(deviceExts, VK_NV_OPTICAL_FLOW_EXTENSION_NAME);
-    }
-    VkPhysicalDeviceVulkan12Features features12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
-    features12.bufferDeviceAddress = VK_TRUE;
-    features12.timelineSemaphore = VK_TRUE;
-    features12.pNext = &features13;
-    VkDeviceCreateInfo deviceInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-    deviceInfo.pNext = &features12;
-    deviceInfo.queueCreateInfoCount = queueInfoCount;
-    deviceInfo.pQueueCreateInfos = queueInfos;
-    deviceInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExts.size());
-    deviceInfo.ppEnabledExtensionNames = deviceExts.data();
-    if (g_vk.createDevice(g_vk.physicalDevice, &deviceInfo, nullptr, &g_vk.device) != VK_SUCCESS) {
-        return fail(IRISDLSS_DEVICE_FAILED, "vkCreateDevice failed");
-    }
-    g_vk.getDeviceQueue(g_vk.device, g_vk.queueFamily, 0, &g_vk.queue);
-    g_vk.getDeviceQueue(g_vk.device, g_vk.queueFamily, mainQueueCount - 1, &g_vk.presentQueue);
+    loadInstance(g_vk.gdpa, "vkGetDeviceProcAddr");
+    loadInstance(g_vk.getPhysicalDeviceProperties2, "vkGetPhysicalDeviceProperties2");
+    loadInstance(g_vk.getMemoryProperties, "vkGetPhysicalDeviceMemoryProperties");
+    loadInstance(g_vk.createWin32Surface, "vkCreateWin32SurfaceKHR");
+    loadInstance(g_vk.destroySurface, "vkDestroySurfaceKHR");
+    loadInstance(g_vk.getSurfaceSupport, "vkGetPhysicalDeviceSurfaceSupportKHR");
+    loadInstance(g_vk.getSurfaceCapabilities, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+    loadInstance(g_vk.getSurfaceFormats, "vkGetPhysicalDeviceSurfaceFormatsKHR");
+    loadInstance(g_vk.getSurfacePresentModes, "vkGetPhysicalDeviceSurfacePresentModesKHR");
+    loadDevice(g_vk.getDeviceQueue, "vkGetDeviceQueue");
+    loadDevice(g_vk.deviceWaitIdle, "vkDeviceWaitIdle");
+    loadDevice(g_vk.queueWaitIdle, "vkQueueWaitIdle");
     loadDevice(g_vk.createImage, "vkCreateImage");
     loadDevice(g_vk.destroyImage, "vkDestroyImage");
     loadDevice(g_vk.getImageMemoryRequirements, "vkGetImageMemoryRequirements");
@@ -416,10 +528,9 @@ IRISDLSS_API int32_t irisdlss_init(const uint8_t* deviceUuid, const wchar_t* dat
     loadDevice(g_vk.bindImageMemory, "vkBindImageMemory");
     loadDevice(g_vk.createImageView, "vkCreateImageView");
     loadDevice(g_vk.destroyImageView, "vkDestroyImageView");
-    loadDevice(g_vk.getMemoryWin32Handle, "vkGetMemoryWin32HandleKHR");
     loadDevice(g_vk.createSemaphore, "vkCreateSemaphore");
     loadDevice(g_vk.destroySemaphore, "vkDestroySemaphore");
-    loadDevice(g_vk.getSemaphoreWin32Handle, "vkGetSemaphoreWin32HandleKHR");
+    loadDevice(g_vk.waitSemaphores, "vkWaitSemaphores");
     loadDevice(g_vk.createCommandPool, "vkCreateCommandPool");
     loadDevice(g_vk.destroyCommandPool, "vkDestroyCommandPool");
     loadDevice(g_vk.allocateCommandBuffers, "vkAllocateCommandBuffers");
@@ -427,43 +538,32 @@ IRISDLSS_API int32_t irisdlss_init(const uint8_t* deviceUuid, const wchar_t* dat
     loadDevice(g_vk.beginCommandBuffer, "vkBeginCommandBuffer");
     loadDevice(g_vk.endCommandBuffer, "vkEndCommandBuffer");
     loadDevice(g_vk.cmdPipelineBarrier, "vkCmdPipelineBarrier");
+    loadDevice(g_vk.cmdCopyImage, "vkCmdCopyImage");
+    loadDevice(g_vk.cmdBlitImage, "vkCmdBlitImage");
     loadDevice(g_vk.queueSubmit, "vkQueueSubmit");
     loadDevice(g_vk.createFence, "vkCreateFence");
     loadDevice(g_vk.destroyFence, "vkDestroyFence");
     loadDevice(g_vk.waitForFences, "vkWaitForFences");
     loadDevice(g_vk.resetFences, "vkResetFences");
-    loadDevice(g_vk.queueWaitIdle, "vkQueueWaitIdle");
-    loadDevice(g_vk.cmdCopyImage, "vkCmdCopyImage");
-    loadDevice(g_vk.cmdBlitImage, "vkCmdBlitImage");
-    loadDevice(g_vk.freeCommandBuffers, "vkFreeCommandBuffers");
     loadDevice(g_vk.createSwapchain, "vkCreateSwapchainKHR");
     loadDevice(g_vk.destroySwapchain, "vkDestroySwapchainKHR");
     loadDevice(g_vk.getSwapchainImages, "vkGetSwapchainImagesKHR");
     loadDevice(g_vk.acquireNextImage, "vkAcquireNextImageKHR");
     loadDevice(g_vk.queuePresent, "vkQueuePresentKHR");
-
-    VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    poolInfo.queueFamilyIndex = g_vk.queueFamily;
-    VkCommandBufferAllocateInfo allocInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = 1;
-    VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    if (g_vk.createCommandPool(g_vk.device, &poolInfo, nullptr, &g_vk.commandPool) != VK_SUCCESS
-        || (allocInfo.commandPool = g_vk.commandPool,
-            g_vk.allocateCommandBuffers(g_vk.device, &allocInfo, &g_vk.commandBuffer) != VK_SUCCESS)
-        || g_vk.createFence(g_vk.device, &fenceInfo, nullptr, &g_vk.fence) != VK_SUCCESS) {
-        return fail(IRISDLSS_DEVICE_FAILED, "command buffer setup failed");
+    g_vk.getDeviceQueue(g_vk.device, g_vk.queueFamily, 0, &g_vk.queue);
+    if (g_vk.presentQueueIndex >= 0) {
+        g_vk.getDeviceQueue(g_vk.device, g_vk.queueFamily, static_cast<uint32_t>(g_vk.presentQueueIndex),
+            &g_vk.presentQueue);
     }
 
-    // NGX looks for nvngx_dlss.dll next to the executable (java.exe) by default; add dataPath.
-    const wchar_t* searchPaths[] = {dataPath};
+    // NGX looks for nvngx_dlss.dll next to the executable (java.exe) by default; add the data path.
+    const wchar_t* searchPaths[] = {g_dataPath.c_str()};
     NVSDK_NGX_FeatureCommonInfo featureInfo{};
     featureInfo.PathListInfo.Path = searchPaths;
     featureInfo.PathListInfo.Length = 1;
     NVSDK_NGX_Result result = NVSDK_NGX_VULKAN_Init_with_ProjectID(kProjectId, NVSDK_NGX_ENGINE_TYPE_CUSTOM,
-        kEngineVersion, dataPath, g_vk.instance, g_vk.physicalDevice, g_vk.device, g_vk.getInstanceProcAddr,
-        g_vk.getDeviceProcAddr, &featureInfo);
+        kEngineVersion, g_dataPath.c_str(), g_vk.instance, g_vk.physicalDevice, g_vk.device, g_vk.gipa, g_vk.gdpa,
+        &featureInfo);
     if (NVSDK_NGX_FAILED(result)) {
         return fail(IRISDLSS_NGX_INIT_FAILED, ngxError("NGX init failed", result));
     }
@@ -482,370 +582,27 @@ IRISDLSS_API int32_t irisdlss_init(const uint8_t* deviceUuid, const wchar_t* dat
         return fail(IRISDLSS_DRIVER_TOO_OLD, "DLSS needs driver " + std::to_string(minMajor) + "."
             + std::to_string(minMinor) + " or newer");
     }
-    int available_ = 0;
-    result = NVSDK_NGX_Parameter_GetI(g_vk.capabilities, NVSDK_NGX_Parameter_SuperSampling_Available, &available_);
-    if (NVSDK_NGX_FAILED(result) || !available_) {
+    int available = 0;
+    result = NVSDK_NGX_Parameter_GetI(g_vk.capabilities, NVSDK_NGX_Parameter_SuperSampling_Available, &available);
+    if (NVSDK_NGX_FAILED(result) || !available) {
         int initResult = 0;
         NVSDK_NGX_Parameter_GetI(g_vk.capabilities, NVSDK_NGX_Parameter_SuperSampling_FeatureInitResult, &initResult);
         return fail(IRISDLSS_DLSS_UNAVAILABLE,
             ngxError("DLSS Super Resolution unavailable", static_cast<NVSDK_NGX_Result>(initResult)));
     }
-
-    g_message = "DLSS Super Resolution available on " + deviceName;
+    g_message = "DLSS Super Resolution available on " + g_vk.deviceName + " (game's Vulkan device"
+        + (g_vk.presentQueue ? ", presenter queue)" : ", no presenter queue)");
     return IRISDLSS_OK;
 }
 
-namespace {
-
-uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags flags) {
-    VkPhysicalDeviceMemoryProperties props;
-    g_vk.getMemoryProperties(g_vk.physicalDevice, &props);
-    for (uint32_t i = 0; i < props.memoryTypeCount; i++) {
-        if ((typeBits & (1u << i)) && (props.memoryTypes[i].propertyFlags & flags) == flags) {
-            return i;
-        }
-    }
-    return UINT32_MAX;
-}
-
-bool createSharedImage(SharedImage& out, VkFormat format, uint32_t width, uint32_t height,
-    IrisDlssSharedImage& exported) {
-    VkExternalMemoryImageCreateInfo external{VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO};
-    external.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-    VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    info.pNext = &external;
-    info.imageType = VK_IMAGE_TYPE_2D;
-    info.format = format;
-    info.extent = {width, height, 1};
-    info.mipLevels = 1;
-    info.arrayLayers = 1;
-    info.samples = VK_SAMPLE_COUNT_1_BIT;
-    info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
-        | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    if (g_vk.createImage(g_vk.device, &info, nullptr, &out.image) != VK_SUCCESS) {
-        return false;
-    }
-    VkMemoryRequirements requirements;
-    g_vk.getImageMemoryRequirements(g_vk.device, out.image, &requirements);
-
-    VkMemoryDedicatedAllocateInfo dedicated{VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO};
-    dedicated.image = out.image;
-    VkExportMemoryAllocateInfo exportInfo{VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO};
-    exportInfo.pNext = &dedicated;
-    exportInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-    VkMemoryAllocateInfo alloc{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-    alloc.pNext = &exportInfo;
-    alloc.allocationSize = requirements.size;
-    alloc.memoryTypeIndex = findMemoryType(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (alloc.memoryTypeIndex == UINT32_MAX
-        || g_vk.allocateMemory(g_vk.device, &alloc, nullptr, &out.memory) != VK_SUCCESS
-        || g_vk.bindImageMemory(g_vk.device, out.image, out.memory, 0) != VK_SUCCESS) {
-        return false;
-    }
-
-    VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    viewInfo.image = out.image;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = format;
-    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    if (g_vk.createImageView(g_vk.device, &viewInfo, nullptr, &out.view) != VK_SUCCESS) {
-        return false;
-    }
-
-    VkMemoryGetWin32HandleInfoKHR handleInfo{VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR};
-    handleInfo.memory = out.memory;
-    handleInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-    HANDLE handle = nullptr;
-    if (g_vk.getMemoryWin32Handle(g_vk.device, &handleInfo, &handle) != VK_SUCCESS) {
-        return false;
-    }
-    out.format = format;
-    out.width = width;
-    out.height = height;
-    exported.memoryHandle = reinterpret_cast<uint64_t>(handle);
-    exported.memorySize = requirements.size;
-    exported.width = width;
-    exported.height = height;
-    return true;
-}
-
-bool createSharedSemaphore(VkSemaphore& out, uint64_t& handleOut) {
-    VkExportSemaphoreCreateInfo exportInfo{VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO};
-    exportInfo.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-    VkSemaphoreCreateInfo info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    info.pNext = &exportInfo;
-    if (g_vk.createSemaphore(g_vk.device, &info, nullptr, &out) != VK_SUCCESS) {
-        return false;
-    }
-    VkSemaphoreGetWin32HandleInfoKHR handleInfo{VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR};
-    handleInfo.semaphore = out;
-    handleInfo.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-    HANDLE handle = nullptr;
-    if (g_vk.getSemaphoreWin32Handle(g_vk.device, &handleInfo, &handle) != VK_SUCCESS) {
-        return false;
-    }
-    handleOut = reinterpret_cast<uint64_t>(handle);
-    return true;
-}
-
-void waitForPreviousSubmit() {
-    if (g_frame.fenceInFlight) {
-        g_vk.waitForFences(g_vk.device, 1, &g_vk.fence, VK_TRUE, UINT64_MAX);
-        g_vk.resetFences(g_vk.device, 1, &g_vk.fence);
-        g_frame.fenceInFlight = false;
+IRISDLSS_API void irisdlss_frame_submitted() {
+    g_frameCounter++;
+    if (!g_retired.empty()) {
+        releaseRetired(false);
     }
 }
 
-VkImageMemoryBarrier barrier(VkImage image, VkImageLayout from, VkImageLayout to,
-    uint32_t srcFamily = VK_QUEUE_FAMILY_IGNORED, uint32_t dstFamily = VK_QUEUE_FAMILY_IGNORED) {
-    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    b.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT;
-    b.dstAccessMask = VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT;
-    b.oldLayout = from;
-    b.newLayout = to;
-    b.srcQueueFamilyIndex = srcFamily;
-    b.dstQueueFamilyIndex = dstFamily;
-    b.image = image;
-    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    return b;
-}
-
-VkImageMemoryBarrier barrier(const SharedImage& image, VkImageLayout from, VkImageLayout to,
-    uint32_t srcFamily, uint32_t dstFamily) {
-    return barrier(image.image, from, to, srcFamily, dstFamily);
-}
-
-}  // namespace
-
-IRISDLSS_API void irisdlss_destroy_resources() {
-    if (!g_vk.device) {
-        return;
-    }
-    waitForPreviousSubmit();
-    {
-        auto lock = lockQueue(g_vk.queue);
-        g_vk.queueWaitIdle(g_vk.queue);
-    }
-    // Frame generation reads these images (and is created for their size).
-    releaseFrameGeneration();
-    if (g_frame.dlss) {
-        NVSDK_NGX_VULKAN_ReleaseFeature(g_frame.dlss);
-        g_frame.dlss = nullptr;
-    }
-    if (g_frame.params) {
-        NVSDK_NGX_VULKAN_DestroyParameters(g_frame.params);
-        g_frame.params = nullptr;
-    }
-    for (SharedImage& image : g_frame.images) {
-        if (image.view) g_vk.destroyImageView(g_vk.device, image.view, nullptr);
-        if (image.image) g_vk.destroyImage(g_vk.device, image.image, nullptr);
-        if (image.memory) g_vk.freeMemory(g_vk.device, image.memory, nullptr);
-        image = SharedImage{};
-    }
-    if (g_frame.glDone) g_vk.destroySemaphore(g_vk.device, g_frame.glDone, nullptr);
-    if (g_frame.vkDone) g_vk.destroySemaphore(g_vk.device, g_frame.vkDone, nullptr);
-    g_frame.glDone = g_frame.vkDone = VK_NULL_HANDLE;
-}
-
-IRISDLSS_API int32_t irisdlss_create_resources(uint32_t renderWidth, uint32_t renderHeight,
-    uint32_t outWidth, uint32_t outHeight, int32_t quality, int32_t depthInverted, int32_t preset, IrisDlssResources* out) {
-    if (!g_vk.ngxInitialized) {
-        return fail(IRISDLSS_NGX_INIT_FAILED, "not initialized");
-    }
-    irisdlss_destroy_resources();
-    std::memset(out, 0, sizeof(*out));
-
-    const VkFormat formats[IRISDLSS_IMAGE_COUNT] = {VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R32_SFLOAT,
-        VK_FORMAT_R16G16_SFLOAT, VK_FORMAT_R8G8B8A8_UNORM};
-    for (int i = 0; i < IRISDLSS_IMAGE_COUNT; i++) {
-        bool output = i == IRISDLSS_IMAGE_COUNT - 1;
-        if (!createSharedImage(g_frame.images[i], formats[i], output ? outWidth : renderWidth,
-                output ? outHeight : renderHeight, out->images[i])) {
-            return fail(IRISDLSS_DEVICE_FAILED, "shared image creation failed (" + std::to_string(i) + ")");
-        }
-    }
-    if (!createSharedSemaphore(g_frame.glDone, out->glDoneSemaphore)
-        || !createSharedSemaphore(g_frame.vkDone, out->vkDoneSemaphore)) {
-        return fail(IRISDLSS_DEVICE_FAILED, "shared semaphore creation failed");
-    }
-
-    NVSDK_NGX_Result result = NVSDK_NGX_VULKAN_AllocateParameters(&g_frame.params);
-    if (NVSDK_NGX_FAILED(result)) {
-        return fail(IRISDLSS_NGX_INIT_FAILED, ngxError("NGX parameter allocation failed", result));
-    }
-    // Model preset (NVSDK_NGX_DLSS_Hint_Render_Preset): 0 = driver default, 11 = K (transformer).
-    for (const char* key : {NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA,
-             NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced,
-             NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance,
-             NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance,
-             NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality}) {
-        NVSDK_NGX_Parameter_SetUI(g_frame.params, key, static_cast<unsigned int>(preset));
-    }
-
-    // Move every image into GENERAL and hand it to OpenGL (external queue family) once, then create
-    // the DLSS feature in the same submission.
-    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    g_vk.resetCommandBuffer(g_vk.commandBuffer, 0);
-    g_vk.beginCommandBuffer(g_vk.commandBuffer, &begin);
-    VkImageMemoryBarrier barriers[IRISDLSS_IMAGE_COUNT];
-    for (int i = 0; i < IRISDLSS_IMAGE_COUNT; i++) {
-        barriers[i] = barrier(g_frame.images[i], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED);
-    }
-    g_vk.cmdPipelineBarrier(g_vk.commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, IRISDLSS_IMAGE_COUNT, barriers);
-
-    NVSDK_NGX_DLSS_Create_Params create{};
-    create.Feature.InWidth = renderWidth;
-    create.Feature.InHeight = renderHeight;
-    create.Feature.InTargetWidth = outWidth;
-    create.Feature.InTargetHeight = outHeight;
-    create.Feature.InPerfQualityValue = static_cast<NVSDK_NGX_PerfQuality_Value>(quality);
-    create.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_MVLowRes
-        | (depthInverted ? NVSDK_NGX_DLSS_Feature_Flags_DepthInverted : 0);
-    result = NGX_VULKAN_CREATE_DLSS_EXT1(g_vk.device, g_vk.commandBuffer, 1, 1, &g_frame.dlss, g_frame.params, &create);
-    g_vk.endCommandBuffer(g_vk.commandBuffer);
-    if (NVSDK_NGX_FAILED(result)) {
-        return fail(IRISDLSS_DLSS_UNAVAILABLE, ngxError("DLSS feature creation failed", result));
-    }
-    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &g_vk.commandBuffer;
-    if (submitTo(g_vk.queue, submit, g_vk.fence) != VK_SUCCESS) {
-        return fail(IRISDLSS_DEVICE_FAILED, "initial submit failed");
-    }
-    g_frame.fenceInFlight = true;
-    waitForPreviousSubmit();
-
-    g_message = "DLSS " + std::to_string(renderWidth) + "x" + std::to_string(renderHeight) + " -> "
-        + std::to_string(outWidth) + "x" + std::to_string(outHeight);
-    return IRISDLSS_OK;
-}
-
-IRISDLSS_API int32_t irisdlss_evaluate(float jitterX, float jitterY, float mvScaleX, float mvScaleY,
-    int32_t reset, float sharpness) {
-    if (!g_frame.dlss) {
-        return fail(IRISDLSS_DLSS_UNAVAILABLE, "no DLSS feature");
-    }
-    waitForPreviousSubmit();
-
-    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    g_vk.resetCommandBuffer(g_vk.commandBuffer, 0);
-    g_vk.beginCommandBuffer(g_vk.commandBuffer, &begin);
-
-    // Acquire from OpenGL: inputs become read-only, output stays GENERAL for storage writes.
-    VkImageMemoryBarrier acquire[IRISDLSS_IMAGE_COUNT];
-    for (int i = 0; i < IRISDLSS_IMAGE_COUNT; i++) {
-        bool output = i == IRISDLSS_IMAGE_COUNT - 1;
-        acquire[i] = barrier(g_frame.images[i], VK_IMAGE_LAYOUT_GENERAL,
-            output ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_QUEUE_FAMILY_EXTERNAL, g_vk.queueFamily);
-    }
-    g_vk.cmdPipelineBarrier(g_vk.commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, IRISDLSS_IMAGE_COUNT, acquire);
-
-    auto resource = [](int index, bool readWrite) {
-        const SharedImage& image = g_frame.images[index];
-        return NVSDK_NGX_Create_ImageView_Resource_VK(image.view, image.image,
-            {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}, image.format, image.width, image.height, readWrite);
-    };
-    NVSDK_NGX_Resource_VK color = resource(0, false);
-    NVSDK_NGX_Resource_VK depth = resource(1, false);
-    NVSDK_NGX_Resource_VK motion = resource(2, false);
-    NVSDK_NGX_Resource_VK output = resource(3, true);
-
-    NVSDK_NGX_VK_DLSS_Eval_Params eval{};
-    eval.Feature.pInColor = &color;
-    eval.Feature.pInOutput = &output;
-    eval.Feature.InSharpness = sharpness;
-    eval.pInDepth = &depth;
-    eval.pInMotionVectors = &motion;
-    eval.InJitterOffsetX = jitterX;
-    eval.InJitterOffsetY = jitterY;
-    eval.InRenderSubrectDimensions = {g_frame.images[0].width, g_frame.images[0].height};
-    eval.InReset = reset;
-    eval.InMVScaleX = mvScaleX;
-    eval.InMVScaleY = mvScaleY;
-    NVSDK_NGX_Result result = NGX_VULKAN_EVALUATE_DLSS_EXT(g_vk.commandBuffer, g_frame.dlss, g_frame.params, &eval);
-
-    // Release back to OpenGL in GENERAL.
-    VkImageMemoryBarrier release[IRISDLSS_IMAGE_COUNT];
-    for (int i = 0; i < IRISDLSS_IMAGE_COUNT; i++) {
-        bool outputImage = i == IRISDLSS_IMAGE_COUNT - 1;
-        release[i] = barrier(g_frame.images[i],
-            outputImage ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_IMAGE_LAYOUT_GENERAL, g_vk.queueFamily, VK_QUEUE_FAMILY_EXTERNAL);
-    }
-    g_vk.cmdPipelineBarrier(g_vk.commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, IRISDLSS_IMAGE_COUNT, release);
-    g_vk.endCommandBuffer(g_vk.commandBuffer);
-
-    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.waitSemaphoreCount = 1;
-    submit.pWaitSemaphores = &g_frame.glDone;
-    submit.pWaitDstStageMask = &waitStage;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &g_vk.commandBuffer;
-    submit.signalSemaphoreCount = 1;
-    submit.pSignalSemaphores = &g_frame.vkDone;
-    if (submitTo(g_vk.queue, submit, g_vk.fence) != VK_SUCCESS) {
-        return fail(IRISDLSS_DEVICE_FAILED, "evaluate submit failed");
-    }
-    g_frame.fenceInFlight = true;
-    if (NVSDK_NGX_FAILED(result)) {
-        return fail(IRISDLSS_DLSS_UNAVAILABLE, ngxError("DLSS evaluate failed", result));
-    }
-    return IRISDLSS_OK;
-}
-
-IRISDLSS_API int32_t irisdlss_probe_frame_generation(uint32_t width, uint32_t height) {
-    if (!g_vk.capabilities) {
-        return fail(IRISDLSS_NGX_INIT_FAILED, "not initialized");
-    }
-    int available = 0, needsDriver = 0, initResult = 0;
-    NVSDK_NGX_Parameter_GetI(g_vk.capabilities, NVSDK_NGX_Parameter_FrameGeneration_Available, &available);
-    NVSDK_NGX_Parameter_GetI(g_vk.capabilities, NVSDK_NGX_Parameter_FrameGeneration_NeedsUpdatedDriver, &needsDriver);
-    NVSDK_NGX_Parameter_GetI(g_vk.capabilities, NVSDK_NGX_Parameter_FrameGeneration_FeatureInitResult, &initResult);
-    std::string info = "FG available=" + std::to_string(available) + " needsDriver=" + std::to_string(needsDriver)
-        + " initResult=" + ngxError("", static_cast<NVSDK_NGX_Result>(initResult))
-        + " opticalFlowQueue=" + (g_vk.opticalFlowFamily != UINT32_MAX ? "yes" : "no")
-        + " missingExt=[" + g_vk.fgExtensionsMissing + "]";
-
-    NVSDK_NGX_Parameter* params = nullptr;
-    NVSDK_NGX_VULKAN_AllocateParameters(&params);
-    NVSDK_NGX_DLSSG_Create_Params create{};
-    create.Width = width;
-    create.Height = height;
-    create.NativeBackbufferFormat = VK_FORMAT_R8G8B8A8_UNORM;
-    create.RenderWidth = width;
-    create.RenderHeight = height;
-    NVSDK_NGX_Handle* handle = nullptr;
-    waitForPreviousSubmit();
-    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    g_vk.resetCommandBuffer(g_vk.commandBuffer, 0);
-    g_vk.beginCommandBuffer(g_vk.commandBuffer, &begin);
-    NVSDK_NGX_Result result = NGX_VK_CREATE_DLSSG(g_vk.commandBuffer, 1, 1, &handle, params, &create);
-    g_vk.endCommandBuffer(g_vk.commandBuffer);
-    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &g_vk.commandBuffer;
-    submitTo(g_vk.queue, submit, g_vk.fence);
-    g_frame.fenceInFlight = true;
-    waitForPreviousSubmit();
-    if (handle) {
-        NVSDK_NGX_VULKAN_ReleaseFeature(handle);
-    }
-    NVSDK_NGX_VULKAN_DestroyParameters(params);
-    g_message = info + " | create: " + ngxError("", result);
-    return NVSDK_NGX_FAILED(result) ? IRISDLSS_DLSS_UNAVAILABLE : IRISDLSS_OK;
-}
+// ---- DLSS Super Resolution ----------------------------------------------------------------------
 
 IRISDLSS_API int32_t irisdlss_optimal_settings(uint32_t outWidth, uint32_t outHeight, int32_t quality,
     uint32_t* renderWidth, uint32_t* renderHeight, float* sharpness) {
@@ -859,42 +616,109 @@ IRISDLSS_API int32_t irisdlss_optimal_settings(uint32_t outWidth, uint32_t outHe
     return NVSDK_NGX_FAILED(result) ? -1 : 0;
 }
 
-IRISDLSS_API void irisdlss_shutdown() {
-    irisdlss_presenter_destroy();
+namespace {
+void releaseFrameGeneration();
+}
+
+IRISDLSS_API void irisdlss_destroy_resources() {
+    // Frame generation is created for the DLSS render size and reads its images.
+    releaseFrameGeneration();
+    retire(g_dlss.handle, g_dlss.params);
+    g_dlss = Dlss{};
+}
+
+IRISDLSS_API int32_t irisdlss_create_resources(uint64_t commandBuffer, uint32_t renderWidth, uint32_t renderHeight,
+    uint32_t outWidth, uint32_t outHeight, int32_t quality, int32_t depthInverted, int32_t preset) {
+    if (!g_vk.ngxInitialized) {
+        return fail(IRISDLSS_NGX_INIT_FAILED, "not initialized");
+    }
     irisdlss_destroy_resources();
-    if (g_vk.device && g_vk.deviceWaitIdle) {
-        g_vk.deviceWaitIdle(g_vk.device);
+    NVSDK_NGX_Result result = NVSDK_NGX_VULKAN_AllocateParameters(&g_dlss.params);
+    if (NVSDK_NGX_FAILED(result)) {
+        return fail(IRISDLSS_NGX_INIT_FAILED, ngxError("NGX parameter allocation failed", result));
     }
-    if (g_vk.fence) {
-        g_vk.destroyFence(g_vk.device, g_vk.fence, nullptr);
-        g_vk.fence = VK_NULL_HANDLE;
+    // Model preset (NVSDK_NGX_DLSS_Hint_Render_Preset): 0 = driver default, 11 = K (transformer).
+    for (const char* key : {NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA,
+             NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced,
+             NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance,
+             NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance,
+             NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality}) {
+        NVSDK_NGX_Parameter_SetUI(g_dlss.params, key, static_cast<unsigned int>(preset));
     }
-    if (g_vk.commandPool) {
-        g_vk.destroyCommandPool(g_vk.device, g_vk.commandPool, nullptr);
-        g_vk.commandPool = VK_NULL_HANDLE;
+    NVSDK_NGX_DLSS_Create_Params create{};
+    create.Feature.InWidth = renderWidth;
+    create.Feature.InHeight = renderHeight;
+    create.Feature.InTargetWidth = outWidth;
+    create.Feature.InTargetHeight = outHeight;
+    create.Feature.InPerfQualityValue = static_cast<NVSDK_NGX_PerfQuality_Value>(quality);
+    create.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_MVLowRes
+        | (depthInverted ? NVSDK_NGX_DLSS_Feature_Flags_DepthInverted : 0);
+    result = NGX_VULKAN_CREATE_DLSS_EXT1(g_vk.device, reinterpret_cast<VkCommandBuffer>(commandBuffer), 1, 1,
+        &g_dlss.handle, g_dlss.params, &create);
+    if (NVSDK_NGX_FAILED(result)) {
+        irisdlss_destroy_resources();
+        return fail(IRISDLSS_DLSS_UNAVAILABLE, ngxError("DLSS feature creation failed", result));
     }
-    if (g_vk.capabilities) {
-        NVSDK_NGX_VULKAN_DestroyParameters(g_vk.capabilities);
-        g_vk.capabilities = nullptr;
+    g_dlss.renderWidth = renderWidth;
+    g_dlss.renderHeight = renderHeight;
+    g_dlss.outWidth = outWidth;
+    g_dlss.outHeight = outHeight;
+    g_message = "DLSS " + std::to_string(renderWidth) + "x" + std::to_string(renderHeight) + " -> "
+        + std::to_string(outWidth) + "x" + std::to_string(outHeight);
+    return IRISDLSS_OK;
+}
+
+IRISDLSS_API int32_t irisdlss_evaluate(uint64_t commandBuffer, const IrisDlssImage* color, const IrisDlssImage* depth,
+    const IrisDlssImage* motion, const IrisDlssImage* output, float jitterX, float jitterY, float mvScaleX,
+    float mvScaleY, int32_t reset) {
+    if (!g_dlss.handle) {
+        return fail(IRISDLSS_DLSS_UNAVAILABLE, "no DLSS feature");
     }
-    if (g_vk.ngxInitialized) {
-        NVSDK_NGX_VULKAN_Shutdown1(g_vk.device);
-        g_vk.ngxInitialized = false;
+    auto cmd = reinterpret_cast<VkCommandBuffer>(commandBuffer);
+    // Inputs read-only, output stays GENERAL for storage writes.
+    VkImageMemoryBarrier before[4] = {
+        barrier(*color, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
+        barrier(*depth, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
+        barrier(*motion, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
+        barrier(*output, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL),
+    };
+    pipelineBarrier(cmd, 4, before);
+
+    NVSDK_NGX_Resource_VK colorResource = resource(*color, false);
+    NVSDK_NGX_Resource_VK depthResource = resource(*depth, false);
+    NVSDK_NGX_Resource_VK motionResource = resource(*motion, false);
+    NVSDK_NGX_Resource_VK outputResource = resource(*output, true);
+    NVSDK_NGX_VK_DLSS_Eval_Params eval{};
+    eval.Feature.pInColor = &colorResource;
+    eval.Feature.pInOutput = &outputResource;
+    eval.pInDepth = &depthResource;
+    eval.pInMotionVectors = &motionResource;
+    eval.InJitterOffsetX = jitterX;
+    eval.InJitterOffsetY = jitterY;
+    eval.InRenderSubrectDimensions = {color->width, color->height};
+    eval.InReset = reset;
+    eval.InMVScaleX = mvScaleX;
+    eval.InMVScaleY = mvScaleY;
+    NVSDK_NGX_Result result = NGX_VULKAN_EVALUATE_DLSS_EXT(cmd, g_dlss.handle, g_dlss.params, &eval);
+
+    VkImageMemoryBarrier after[4] = {
+        barrier(*color, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL),
+        barrier(*depth, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL),
+        barrier(*motion, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL),
+        barrier(*output, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL),
+    };
+    pipelineBarrier(cmd, 4, after);
+    if (NVSDK_NGX_FAILED(result)) {
+        return fail(IRISDLSS_DLSS_UNAVAILABLE, ngxError("DLSS evaluate failed", result));
     }
-    if (g_vk.device) {
-        g_vk.destroyDevice(g_vk.device, nullptr);
-        g_vk.device = VK_NULL_HANDLE;
-    }
-    if (g_vk.instance) {
-        g_vk.destroyInstance(g_vk.instance, nullptr);
-        g_vk.instance = VK_NULL_HANDLE;
-    }
+    return IRISDLSS_OK;
 }
 
 // ---- Presentation -------------------------------------------------------------------------------
 // The finished frame leaves through a Vulkan swapchain on a child window that covers the game
-// window; OpenGL no longer swaps. With frame generation DLSS-G builds the frame between the previous
-// and the current one: the presenter thread shows it first and the real frame half a frame later.
+// window; the game's own swapchain stays idle. The copy of the frame and DLSS-G run in the game's
+// command buffer; the presenter thread waits for that submission (timeline semaphore) on its own
+// queue and shows the generated frame first, the real one half a frame interval later.
 
 namespace {
 
@@ -911,29 +735,22 @@ struct LocalImage {
 struct PresentSlot {
     LocalImage real;
     LocalImage interp;
-    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
-    VkSemaphore realReady = VK_NULL_HANDLE;    // waited by the blit of the real frame
-    VkSemaphore interpReady = VK_NULL_HANDLE;  // waited by the blit of the generated frame
-    bool fenceInFlight = false;
     bool busy = false;  // queued for / shown by the presenter thread (guarded by Presenter::mutex)
 };
 
 struct Job {
     int slot;
     bool interpolated;
+    uint64_t value;  // timeline value signaled when the slot's images are rendered
 };
 
 struct Presenter {
     HWND window = nullptr;
     uint32_t width = 0;
     uint32_t height = 0;
-    bool externalSync = true;
 
-    SharedImage frame;
-    VkSemaphore ready = VK_NULL_HANDLE;
-    VkSemaphore consumed = VK_NULL_HANDLE;
-
+    VkSemaphore timeline = VK_NULL_HANDLE;
+    uint64_t timelineValue = 0;
     PresentSlot slots[kSlotCount];
     int nextSlot = 0;
 
@@ -992,6 +809,17 @@ double now() {
     return static_cast<double>(t.QuadPart) / g_present.frequency;
 }
 
+uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags flags) {
+    VkPhysicalDeviceMemoryProperties props;
+    g_vk.getMemoryProperties(g_vk.physicalDevice, &props);
+    for (uint32_t i = 0; i < props.memoryTypeCount; i++) {
+        if ((typeBits & (1u << i)) && (props.memoryTypes[i].propertyFlags & flags) == flags) {
+            return i;
+        }
+    }
+    return UINT32_MAX;
+}
+
 bool createLocalImage(LocalImage& out, uint32_t width, uint32_t height) {
     VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     info.imageType = VK_IMAGE_TYPE_2D;
@@ -1032,8 +860,16 @@ void destroyLocalImage(LocalImage& image) {
     image = LocalImage{};
 }
 
-VkSemaphore createSemaphore() {
+IrisDlssImage describe(const LocalImage& image, uint32_t width, uint32_t height) {
+    return {reinterpret_cast<uint64_t>(image.image), reinterpret_cast<uint64_t>(image.view),
+        VK_FORMAT_R8G8B8A8_UNORM, width, height};
+}
+
+VkSemaphore createSemaphore(bool timeline) {
+    VkSemaphoreTypeCreateInfo type{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+    type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
     VkSemaphoreCreateInfo info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    info.pNext = timeline ? &type : nullptr;
     VkSemaphore semaphore = VK_NULL_HANDLE;
     g_vk.createSemaphore(g_vk.device, &info, nullptr, &semaphore);
     return semaphore;
@@ -1078,11 +914,6 @@ void setThreadError(const std::string& message) {
     g_present.threadFailed = true;
 }
 
-void waitPresentQueueIdle() {
-    auto lock = lockQueue(g_vk.presentQueue);
-    g_vk.queueWaitIdle(g_vk.presentQueue);
-}
-
 // Presenter thread (or before it starts). False with an empty error if the window has no area.
 bool createSwapchain(std::string& error) {
     VkSurfaceCapabilitiesKHR caps;
@@ -1112,7 +943,7 @@ bool createSwapchain(std::string& error) {
     }
     VkSurfaceFormatKHR format = formats[0];
     for (const auto& candidate : formats) {
-        // UNORM, not SRGB: the frame is already display-encoded, exactly as OpenGL showed it.
+        // UNORM, not SRGB: the frame is already display-encoded, exactly as the game shows it.
         if ((candidate.format == VK_FORMAT_B8G8R8A8_UNORM || candidate.format == VK_FORMAT_R8G8B8A8_UNORM)
             && candidate.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
             format = candidate;
@@ -1155,7 +986,7 @@ bool createSwapchain(std::string& error) {
     info.clipped = VK_TRUE;
     info.oldSwapchain = g_present.swapchain;
 
-    waitPresentQueueIdle();
+    g_vk.queueWaitIdle(g_vk.presentQueue);
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
     VkResult result = g_vk.createSwapchain(g_vk.device, &info, nullptr, &swapchain);
     if (g_present.swapchain) {
@@ -1177,7 +1008,7 @@ bool createSwapchain(std::string& error) {
     g_present.swapImages.resize(count);
     g_vk.getSwapchainImages(g_vk.device, swapchain, &count, g_present.swapImages.data());
     for (uint32_t i = 0; i < count; i++) {
-        g_present.blitDone.push_back(createSemaphore());
+        g_present.blitDone.push_back(createSemaphore(false));
     }
     return true;
 }
@@ -1193,20 +1024,8 @@ int takeBlitSlot() {
     return index;
 }
 
-// Every signal of a slot semaphore needs exactly one wait, even for a frame that is not shown.
-void consumeSemaphore(VkSemaphore semaphore) {
-    int b = takeBlitSlot();
-    VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.waitSemaphoreCount = 1;
-    submit.pWaitSemaphores = &semaphore;
-    submit.pWaitDstStageMask = &stage;
-    if (submitTo(g_vk.presentQueue, submit, g_present.blitFences[b]) == VK_SUCCESS) {
-        g_present.blitInFlight[b] = true;
-    }
-}
-
-void showImage(const LocalImage& source, VkSemaphore sourceReady) {
+// Blits source to the next swapchain image once the game's submission reached `ready`.
+void showImage(const LocalImage& source, uint64_t ready) {
     if (g_present.recreate.exchange(false) || !g_present.swapchain) {
         std::string error;
         if (!createSwapchain(error)) {
@@ -1214,7 +1033,6 @@ void showImage(const LocalImage& source, VkSemaphore sourceReady) {
                 setThreadError(error);
             }
             g_present.recreate = true;
-            consumeSemaphore(sourceReady);
             return;
         }
     }
@@ -1224,7 +1042,6 @@ void showImage(const LocalImage& source, VkSemaphore sourceReady) {
         VK_NULL_HANDLE, &index);
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         g_present.recreate = true;
-        consumeSemaphore(sourceReady);
         return;
     }
 
@@ -1234,10 +1051,11 @@ void showImage(const LocalImage& source, VkSemaphore sourceReady) {
     g_vk.resetCommandBuffer(cmd, 0);
     g_vk.beginCommandBuffer(cmd, &begin);
     VkImage target = g_present.swapImages[index];
-    VkImageMemoryBarrier toTransfer = barrier(target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageMemoryBarrier toTransfer = barrier(target, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
         nullptr, 1, &toTransfer);
-    // OpenGL images start at the bottom row: flip while copying.
+    // The game's images start at the bottom row (it flips when it presents itself): flip while copying.
     VkImageBlit region{};
     region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.srcOffsets[0] = {0, static_cast<int32_t>(g_present.height), 0};
@@ -1248,15 +1066,20 @@ void showImage(const LocalImage& source, VkSemaphore sourceReady) {
     bool sameSize = g_present.extent.width == g_present.width && g_present.extent.height == g_present.height;
     g_vk.cmdBlitImage(cmd, source.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, sameSize ? VK_FILTER_NEAREST : VK_FILTER_LINEAR);
-    VkImageMemoryBarrier toPresent = barrier(target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    VkImageMemoryBarrier toPresent = barrier(target, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
         nullptr, 0, nullptr, 1, &toPresent);
     g_vk.endCommandBuffer(cmd);
 
-    VkSemaphore waits[2] = {g_present.acquired[b], sourceReady};
+    VkSemaphore waits[2] = {g_present.acquired[b], g_present.timeline};
+    uint64_t waitValues[2] = {0, ready};
     VkPipelineStageFlags stages[2] = {VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT};
+    VkTimelineSemaphoreSubmitInfo timelineInfo{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+    timelineInfo.waitSemaphoreValueCount = 2;
+    timelineInfo.pWaitSemaphoreValues = waitValues;
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit.pNext = &timelineInfo;
     submit.waitSemaphoreCount = 2;
     submit.pWaitSemaphores = waits;
     submit.pWaitDstStageMask = stages;
@@ -1264,22 +1087,18 @@ void showImage(const LocalImage& source, VkSemaphore sourceReady) {
     submit.pCommandBuffers = &cmd;
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &g_present.blitDone[index];
+    if (g_vk.queueSubmit(g_vk.presentQueue, 1, &submit, g_present.blitFences[b]) != VK_SUCCESS) {
+        setThreadError("present blit submit failed");
+        return;
+    }
+    g_present.blitInFlight[b] = true;
     VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     present.waitSemaphoreCount = 1;
     present.pWaitSemaphores = &g_present.blitDone[index];
     present.swapchainCount = 1;
     present.pSwapchains = &g_present.swapchain;
     present.pImageIndices = &index;
-    {
-        auto lock = lockQueue(g_vk.presentQueue);
-        if (g_vk.queueSubmit(g_vk.presentQueue, 1, &submit, g_present.blitFences[b]) != VK_SUCCESS) {
-            lock.unlock();
-            setThreadError("present blit submit failed");
-            return;
-        }
-        g_present.blitInFlight[b] = true;
-        result = g_vk.queuePresent(g_vk.presentQueue, &present);
-    }
+    result = g_vk.queuePresent(g_vk.presentQueue, &present);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
         g_present.recreate = true;
     }
@@ -1292,6 +1111,28 @@ void waitBlits() {
             g_vk.waitForFences(g_vk.device, 1, &g_present.blitFences[i], VK_TRUE, UINT64_MAX);
             g_vk.resetFences(g_vk.device, 1, &g_present.blitFences[i]);
             g_present.blitInFlight[i] = false;
+        }
+    }
+}
+
+// CPU wait until the game's submission reached `value`; false if the presenter is stopping.
+bool waitRendered(uint64_t value) {
+    VkSemaphoreWaitInfo info{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+    info.semaphoreCount = 1;
+    info.pSemaphores = &g_present.timeline;
+    info.pValues = &value;
+    for (;;) {
+        VkResult result = g_vk.waitSemaphores(g_vk.device, &info, 100'000'000ull);
+        if (result == VK_SUCCESS) {
+            return true;
+        }
+        if (result != VK_TIMEOUT) {
+            setThreadError("waiting for the rendered frame failed (" + std::to_string(result) + ")");
+            return false;
+        }
+        std::lock_guard<std::mutex> lock(g_present.mutex);
+        if (g_present.stop) {
+            return false;
         }
     }
 }
@@ -1326,22 +1167,27 @@ void presenterLoop() {
             g_present.jobs.pop_front();
         }
         PresentSlot& slot = g_present.slots[job.slot];
+        bool shown = true;
         if (job.interpolated) {
             // Show the generated frame as soon as it exists, the real one half a frame interval later.
-            g_vk.waitForFences(g_vk.device, 1, &slot.fence, VK_TRUE, UINT64_MAX);
-            double shown = now();
-            showImage(slot.interp, slot.interpReady);
-            g_present.generatedCount++;
-            bool backlog;
-            {
-                std::lock_guard<std::mutex> lock(g_present.mutex);
-                backlog = !g_present.jobs.empty();
-            }
-            if (!backlog) {
-                sleepUntil(shown + g_present.frameInterval.load() * 0.5);
+            shown = waitRendered(job.value);
+            if (shown) {
+                double start = now();
+                showImage(slot.interp, job.value);
+                g_present.generatedCount++;
+                bool backlog;
+                {
+                    std::lock_guard<std::mutex> lock(g_present.mutex);
+                    backlog = !g_present.jobs.empty();
+                }
+                if (!backlog) {
+                    sleepUntil(start + g_present.frameInterval.load() * 0.5);
+                }
             }
         }
-        showImage(slot.real, slot.realReady);
+        if (shown) {
+            showImage(slot.real, job.value);
+        }
         waitBlits();
         {
             std::lock_guard<std::mutex> lock(g_present.mutex);
@@ -1352,17 +1198,13 @@ void presenterLoop() {
 }
 
 void releaseFrameGeneration() {
-    if (g_present.fg) {
-        NVSDK_NGX_VULKAN_ReleaseFeature(g_present.fg);
-        g_present.fg = nullptr;
-    }
-    if (g_present.fgParams) {
-        NVSDK_NGX_VULKAN_DestroyParameters(g_present.fgParams);
-        g_present.fgParams = nullptr;
-    }
+    retire(g_present.fg, g_present.fgParams);
+    g_present.fg = nullptr;
+    g_present.fgParams = nullptr;
+    g_present.fgFailed = false;
 }
 
-bool ensureFrameGeneration() {
+bool ensureFrameGeneration(VkCommandBuffer cmd) {
     if (g_present.fg) {
         return true;
     }
@@ -1379,26 +1221,18 @@ bool ensureFrameGeneration() {
     create.Width = g_present.width;
     create.Height = g_present.height;
     create.NativeBackbufferFormat = VK_FORMAT_R8G8B8A8_UNORM;
-    create.RenderWidth = g_frame.images[1].width;
-    create.RenderHeight = g_frame.images[1].height;
-    waitForPreviousSubmit();
-    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    g_vk.resetCommandBuffer(g_vk.commandBuffer, 0);
-    g_vk.beginCommandBuffer(g_vk.commandBuffer, &begin);
-    result = NGX_VK_CREATE_DLSSG(g_vk.commandBuffer, 1, 1, &g_present.fg, g_present.fgParams, &create);
-    g_vk.endCommandBuffer(g_vk.commandBuffer);
-    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &g_vk.commandBuffer;
-    if (submitTo(g_vk.queue, submit, g_vk.fence) == VK_SUCCESS) {
-        g_frame.fenceInFlight = true;
-        waitForPreviousSubmit();
-    }
+    create.RenderWidth = g_dlss.renderWidth;
+    create.RenderHeight = g_dlss.renderHeight;
+    result = NGX_VK_CREATE_DLSSG(cmd, 1, 1, &g_present.fg, g_present.fgParams, &create);
     if (NVSDK_NGX_FAILED(result) || !g_present.fg) {
-        g_present.fgFailed = true;
-        g_message = ngxError("frame generation creation failed", result);
+        int available = 0, initResult = 0;
+        NVSDK_NGX_Parameter_GetI(g_vk.capabilities, NVSDK_NGX_Parameter_FrameGeneration_Available, &available);
+        NVSDK_NGX_Parameter_GetI(g_vk.capabilities, NVSDK_NGX_Parameter_FrameGeneration_FeatureInitResult, &initResult);
+        g_message = ngxError("frame generation creation failed", result) + " | available=" + std::to_string(available)
+            + " init=" + ngxError("", static_cast<NVSDK_NGX_Result>(initResult)) + " opticalFlowQueue="
+            + (g_vk.opticalFlowFamily != UINT32_MAX ? "yes" : "no") + " missingExt=[" + g_vk.fgExtensionsMissing + "]";
         releaseFrameGeneration();
+        g_present.fgFailed = true;
         return false;
     }
     return true;
@@ -1418,15 +1252,17 @@ IRISDLSS_API void irisdlss_presenter_destroy() {
         g_present.cv.notify_all();
         g_present.thread.join();
     }
-    g_vk.deviceWaitIdle(g_vk.device);
+    if (g_vk.presentQueue) {
+        g_vk.queueWaitIdle(g_vk.presentQueue);
+    }
+    // Earlier frames of the game may still copy into the slots (render thread: the queue is ours to use).
+    if (g_present.timeline) {
+        g_vk.queueWaitIdle(g_vk.queue);
+    }
     releaseFrameGeneration();
     for (PresentSlot& slot : g_present.slots) {
         destroyLocalImage(slot.real);
         destroyLocalImage(slot.interp);
-        if (slot.commandBuffer) g_vk.freeCommandBuffers(g_vk.device, g_vk.commandPool, 1, &slot.commandBuffer);
-        if (slot.fence) g_vk.destroyFence(g_vk.device, slot.fence, nullptr);
-        if (slot.realReady) g_vk.destroySemaphore(g_vk.device, slot.realReady, nullptr);
-        if (slot.interpReady) g_vk.destroySemaphore(g_vk.device, slot.interpReady, nullptr);
         slot = PresentSlot{};
     }
     for (int i = 0; i < kBlitCount; i++) {
@@ -1453,13 +1289,11 @@ IRISDLSS_API void irisdlss_presenter_destroy() {
         g_vk.destroySurface(g_vk.instance, g_present.surface, nullptr);
         g_present.surface = VK_NULL_HANDLE;
     }
-    if (g_present.frame.view) g_vk.destroyImageView(g_vk.device, g_present.frame.view, nullptr);
-    if (g_present.frame.image) g_vk.destroyImage(g_vk.device, g_present.frame.image, nullptr);
-    if (g_present.frame.memory) g_vk.freeMemory(g_vk.device, g_present.frame.memory, nullptr);
-    g_present.frame = SharedImage{};
-    if (g_present.ready) g_vk.destroySemaphore(g_vk.device, g_present.ready, nullptr);
-    if (g_present.consumed) g_vk.destroySemaphore(g_vk.device, g_present.consumed, nullptr);
-    g_present.ready = g_present.consumed = VK_NULL_HANDLE;
+    if (g_present.timeline) {
+        g_vk.destroySemaphore(g_vk.device, g_present.timeline, nullptr);
+        g_present.timeline = VK_NULL_HANDLE;
+    }
+    g_present.timelineValue = 0;
     if (g_present.timer) {
         CloseHandle(g_present.timer);
         g_present.timer = nullptr;
@@ -1476,20 +1310,20 @@ IRISDLSS_API void irisdlss_presenter_destroy() {
     g_present.threadError.clear();
 }
 
-IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t width, uint32_t height,
-    int32_t vsync, int32_t externalSync, IrisDlssPresentResources* out) {
+IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t width, uint32_t height, int32_t vsync) {
     if (!g_vk.ngxInitialized) {
         return fail(IRISDLSS_NGX_INIT_FAILED, "not initialized");
     }
+    if (!g_vk.presentQueue) {
+        return fail(IRISDLSS_DEVICE_FAILED, "no spare queue in the graphics family for the presenter");
+    }
     irisdlss_presenter_destroy();
-    std::memset(out, 0, sizeof(*out));
     LARGE_INTEGER frequency;
     QueryPerformanceFrequency(&frequency);
     g_present.frequency = static_cast<double>(frequency.QuadPart);
     g_present.width = width;
     g_present.height = height;
     g_present.vsync = vsync != 0;
-    g_present.externalSync = externalSync != 0;
     g_present.fgFailed = false;
     g_present.lastFrame = 0.0;
     g_present.statsStart = now();
@@ -1512,29 +1346,12 @@ IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t wid
         irisdlss_presenter_destroy();
         return fail(IRISDLSS_DEVICE_FAILED, "queue family cannot present to the window");
     }
-
-    if (!createSharedImage(g_present.frame, VK_FORMAT_R8G8B8A8_UNORM, width, height, out->frame)) {
-        irisdlss_presenter_destroy();
-        return fail(IRISDLSS_DEVICE_FAILED, "frame image creation failed");
-    }
-    if (g_present.externalSync && (!createSharedSemaphore(g_present.ready, out->readySemaphore)
-            || !createSharedSemaphore(g_present.consumed, out->consumedSemaphore))) {
-        irisdlss_presenter_destroy();
-        return fail(IRISDLSS_DEVICE_FAILED, "present semaphore creation failed");
-    }
+    g_present.timeline = createSemaphore(true);
     for (PresentSlot& slot : g_present.slots) {
-        VkCommandBufferAllocateInfo alloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-        alloc.commandPool = g_vk.commandPool;
-        alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        alloc.commandBufferCount = 1;
-        if (!createLocalImage(slot.real, width, height) || !createLocalImage(slot.interp, width, height)
-            || g_vk.allocateCommandBuffers(g_vk.device, &alloc, &slot.commandBuffer) != VK_SUCCESS) {
+        if (!createLocalImage(slot.real, width, height) || !createLocalImage(slot.interp, width, height)) {
             irisdlss_presenter_destroy();
             return fail(IRISDLSS_DEVICE_FAILED, "present slot creation failed");
         }
-        slot.fence = createFence();
-        slot.realReady = createSemaphore();
-        slot.interpReady = createSemaphore();
     }
     VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -1542,7 +1359,7 @@ IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t wid
     VkCommandBufferAllocateInfo blitAlloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     blitAlloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     blitAlloc.commandBufferCount = kBlitCount;
-    if (g_vk.createCommandPool(g_vk.device, &poolInfo, nullptr, &g_present.blitPool) != VK_SUCCESS
+    if (!g_present.timeline || g_vk.createCommandPool(g_vk.device, &poolInfo, nullptr, &g_present.blitPool) != VK_SUCCESS
         || (blitAlloc.commandPool = g_present.blitPool,
             g_vk.allocateCommandBuffers(g_vk.device, &blitAlloc, g_present.blitBuffers) != VK_SUCCESS)) {
         irisdlss_presenter_destroy();
@@ -1550,30 +1367,10 @@ IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t wid
     }
     for (int i = 0; i < kBlitCount; i++) {
         g_present.blitFences[i] = createFence();
-        g_present.acquired[i] = createSemaphore();
+        g_present.acquired[i] = createSemaphore(false);
     }
     g_present.timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
         TIMER_ALL_ACCESS);
-
-    // The frame image lives in GENERAL and belongs to OpenGL between frames.
-    waitForPreviousSubmit();
-    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    g_vk.resetCommandBuffer(g_vk.commandBuffer, 0);
-    g_vk.beginCommandBuffer(g_vk.commandBuffer, &begin);
-    VkImageMemoryBarrier toGeneral = barrier(g_present.frame.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-    g_vk.cmdPipelineBarrier(g_vk.commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &toGeneral);
-    g_vk.endCommandBuffer(g_vk.commandBuffer);
-    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &g_vk.commandBuffer;
-    if (submitTo(g_vk.queue, submit, g_vk.fence) != VK_SUCCESS) {
-        irisdlss_presenter_destroy();
-        return fail(IRISDLSS_DEVICE_FAILED, "frame image setup failed");
-    }
-    g_frame.fenceInFlight = true;
-    waitForPreviousSubmit();
 
     std::string error;
     if (!createSwapchain(error) && !error.empty()) {
@@ -1581,8 +1378,7 @@ IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t wid
         return fail(IRISDLSS_DEVICE_FAILED, error);
     }
     g_present.thread = std::thread(presenterLoop);
-    g_message = "Vulkan presenter " + std::to_string(width) + "x" + std::to_string(height)
-        + (g_vk.presentQueue != g_vk.queue ? " (own queue)" : " (shared queue)");
+    g_message = "Vulkan presenter " + std::to_string(width) + "x" + std::to_string(height) + " on the game's device";
     return IRISDLSS_OK;
 }
 
@@ -1593,7 +1389,13 @@ IRISDLSS_API void irisdlss_presenter_set_vsync(int32_t vsync) {
     }
 }
 
-IRISDLSS_API int32_t irisdlss_present(const float* fg) {
+IRISDLSS_API uint64_t irisdlss_presenter_timeline() {
+    return reinterpret_cast<uint64_t>(g_present.timeline);
+}
+
+IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImage* frame, const IrisDlssImage* depth,
+    const IrisDlssImage* motion, const IrisDlssImage* hudless, const float* fg, uint64_t* signalValue) {
+    *signalValue = 0;
     if (!g_present.thread.joinable()) {
         return fail(IRISDLSS_DEVICE_FAILED, "presenter not running");
     }
@@ -1620,68 +1422,47 @@ IRISDLSS_API int32_t irisdlss_present(const float* fg) {
         std::unique_lock<std::mutex> lock(g_present.mutex);
         g_present.cv.wait(lock, [&] { return !slot.busy; });
     }
-    if (slot.fenceInFlight) {
-        g_vk.waitForFences(g_vk.device, 1, &slot.fence, VK_TRUE, UINT64_MAX);
-        g_vk.resetFences(g_vk.device, 1, &slot.fence);
-        slot.fenceInFlight = false;
-    }
 
+    auto cmd = reinterpret_cast<VkCommandBuffer>(commandBuffer);
     // Frame generation needs this frame's depth / motion vectors / hudless output at matching sizes.
-    bool useFg = fg != nullptr && g_frame.dlss != nullptr && g_frame.images[3].width == g_present.width
-        && g_frame.images[3].height == g_present.height && ensureFrameGeneration();
-
-    uint32_t external = g_present.externalSync ? VK_QUEUE_FAMILY_EXTERNAL : VK_QUEUE_FAMILY_IGNORED;
-    uint32_t local = g_present.externalSync ? g_vk.queueFamily : VK_QUEUE_FAMILY_IGNORED;
-    VkCommandBuffer cmd = slot.commandBuffer;
-    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    g_vk.resetCommandBuffer(cmd, 0);
-    g_vk.beginCommandBuffer(cmd, &begin);
+    bool useFg = fg != nullptr && depth && motion && hudless && g_dlss.handle != nullptr
+        && hudless->width == g_present.width && hudless->height == g_present.height && ensureFrameGeneration(cmd);
 
     VkImageMemoryBarrier copyIn[2] = {
-        barrier(g_present.frame.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, external, local),
-        barrier(slot.real.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL),
+        barrier(*frame, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL),
+        barrier(slot.real.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL),
     };
-    g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr,
-        0, nullptr, 2, copyIn);
+    pipelineBarrier(cmd, 2, copyIn);
     VkImageCopy copy{};
     copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     copy.dstSubresource = copy.srcSubresource;
-    copy.extent = {g_present.width, g_present.height, 1};
-    g_vk.cmdCopyImage(cmd, g_present.frame.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, slot.real.image,
+    copy.extent = {frame->width < g_present.width ? frame->width : g_present.width,
+        frame->height < g_present.height ? frame->height : g_present.height, 1};
+    g_vk.cmdCopyImage(cmd, reinterpret_cast<VkImage>(frame->image), VK_IMAGE_LAYOUT_GENERAL, slot.real.image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
     NVSDK_NGX_Result fgResult = NVSDK_NGX_Result_Success;
     if (useFg) {
         VkImageMemoryBarrier toEval[5] = {
-            barrier(slot.real.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
-            barrier(slot.interp.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL),
-            barrier(g_frame.images[1], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, external, local),
-            barrier(g_frame.images[2], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, external, local),
-            barrier(g_frame.images[3], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, external, local),
+            barrier(slot.real.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
+            barrier(slot.interp.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL),
+            barrier(*depth, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
+            barrier(*motion, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
+            barrier(*hudless, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
         };
-        g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0,
-            nullptr, 0, nullptr, 5, toEval);
+        pipelineBarrier(cmd, 5, toEval);
 
-        auto view = [](VkImageView v, VkImage image, uint32_t w, uint32_t h, VkFormat format, bool readWrite) {
-            return NVSDK_NGX_Create_ImageView_Resource_VK(v, image, kColorRange, format, w, h, readWrite);
-        };
-        NVSDK_NGX_Resource_VK backbuffer = view(slot.real.view, slot.real.image, g_present.width, g_present.height,
-            VK_FORMAT_R8G8B8A8_UNORM, false);
-        NVSDK_NGX_Resource_VK interp = view(slot.interp.view, slot.interp.image, g_present.width, g_present.height,
-            VK_FORMAT_R8G8B8A8_UNORM, true);
-        const SharedImage& d = g_frame.images[1];
-        const SharedImage& m = g_frame.images[2];
-        const SharedImage& h = g_frame.images[3];
-        NVSDK_NGX_Resource_VK depth = view(d.view, d.image, d.width, d.height, d.format, false);
-        NVSDK_NGX_Resource_VK mvecs = view(m.view, m.image, m.width, m.height, m.format, false);
-        NVSDK_NGX_Resource_VK hudless = view(h.view, h.image, h.width, h.height, h.format, false);
-
+        NVSDK_NGX_Resource_VK backbuffer = resource(describe(slot.real, g_present.width, g_present.height), false);
+        NVSDK_NGX_Resource_VK interp = resource(describe(slot.interp, g_present.width, g_present.height), true);
+        NVSDK_NGX_Resource_VK depthResource = resource(*depth, false);
+        NVSDK_NGX_Resource_VK motionResource = resource(*motion, false);
+        NVSDK_NGX_Resource_VK hudlessResource = resource(*hudless, false);
         NVSDK_NGX_VK_DLSSG_Eval_Params eval{};
         eval.pBackbuffer = &backbuffer;
-        eval.pDepth = &depth;
-        eval.pMVecs = &mvecs;
-        eval.pHudless = &hudless;
+        eval.pDepth = &depthResource;
+        eval.pMVecs = &motionResource;
+        eval.pHudless = &hudlessResource;
         eval.pOutputInterpFrame = &interp;
         NVSDK_NGX_DLSSG_Opt_Eval_Params opt{};
         std::memcpy(opt.cameraViewToClip, fg + IRISDLSS_FG_VIEW_TO_CLIP, sizeof(opt.cameraViewToClip));
@@ -1710,52 +1491,35 @@ IRISDLSS_API int32_t irisdlss_present(const float* fg) {
         opt.motionVectorsInvalidValue = 1e30f;  // every vector we write is valid
         fgResult = NGX_VK_EVALUATE_DLSSG(cmd, g_present.fg, g_present.fgParams, &eval, &opt);
 
-        VkImageMemoryBarrier afterEval[5] = {
-            barrier(slot.real.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL),
-            barrier(slot.interp.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL),
-            barrier(g_frame.images[1], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, local, external),
-            barrier(g_frame.images[2], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, local, external),
-            barrier(g_frame.images[3], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, local, external),
+        VkImageMemoryBarrier afterEval[6] = {
+            barrier(slot.real.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL),
+            barrier(slot.interp.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_GENERAL,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL),
+            barrier(*depth, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL),
+            barrier(*motion, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL),
+            barrier(*hudless, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL),
+            barrier(*frame, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL),
         };
-        g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0,
-            nullptr, 0, nullptr, 5, afterEval);
+        pipelineBarrier(cmd, 6, afterEval);
     } else {
-        VkImageMemoryBarrier toSource = barrier(slot.real.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr,
-            0, nullptr, 1, &toSource);
+        VkImageMemoryBarrier toSource[2] = {
+            barrier(slot.real.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL),
+            barrier(*frame, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL),
+        };
+        pipelineBarrier(cmd, 2, toSource);
     }
-    VkImageMemoryBarrier release = barrier(g_present.frame.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        VK_IMAGE_LAYOUT_GENERAL, local, external);
-    g_vk.cmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
-        nullptr, 0, nullptr, 1, &release);
-    g_vk.endCommandBuffer(cmd);
 
-    VkSemaphore signals[3];
-    uint32_t signalCount = 0;
-    signals[signalCount++] = slot.realReady;
-    if (useFg) signals[signalCount++] = slot.interpReady;
-    if (g_present.externalSync) signals[signalCount++] = g_present.consumed;
-    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.waitSemaphoreCount = g_present.externalSync ? 1 : 0;
-    submit.pWaitSemaphores = &g_present.ready;
-    submit.pWaitDstStageMask = &waitStage;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    submit.signalSemaphoreCount = signalCount;
-    submit.pSignalSemaphores = signals;
-    if (submitTo(g_vk.queue, submit, slot.fence) != VK_SUCCESS) {
-        return fail(IRISDLSS_DEVICE_FAILED, "present submit failed");
-    }
-    slot.fenceInFlight = true;
+    uint64_t value = ++g_present.timelineValue;
     {
         std::lock_guard<std::mutex> lock(g_present.mutex);
         slot.busy = true;
-        g_present.jobs.push_back({slotIndex, useFg});
+        g_present.jobs.push_back({slotIndex, useFg && NVSDK_NGX_SUCCEED(fgResult), value});
     }
     g_present.cv.notify_all();
     g_present.nextSlot = (slotIndex + 1) % kSlotCount;
+    *signalValue = value;
 
     if (NVSDK_NGX_FAILED(fgResult)) {
         // Keep presenting; frame generation stays off until the presenter is recreated.
@@ -1770,4 +1534,24 @@ IRISDLSS_API void irisdlss_presenter_stats(float stats[3]) {
     stats[0] = g_present.fps;
     stats[1] = g_present.fgRecently ? 1.0f : 0.0f;
     stats[2] = g_present.threadFailed ? 1.0f : 0.0f;
+}
+
+IRISDLSS_API void irisdlss_shutdown() {
+    if (!g_vk.device) {
+        return;
+    }
+    if (g_vk.ngxInitialized) {
+        irisdlss_presenter_destroy();
+        // The game already waited for its queue; nothing else uses the device any more.
+        g_vk.deviceWaitIdle(g_vk.device);
+        irisdlss_destroy_resources();
+        releaseRetired(true);
+        if (g_vk.capabilities) {
+            NVSDK_NGX_VULKAN_DestroyParameters(g_vk.capabilities);
+            g_vk.capabilities = nullptr;
+        }
+        NVSDK_NGX_VULKAN_Shutdown1(g_vk.device);
+        g_vk.ngxInitialized = false;
+    }
+    g_vk = Vk{};
 }

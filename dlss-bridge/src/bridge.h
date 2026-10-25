@@ -1,4 +1,9 @@
-// Iris DLSS bridge: runs NVIDIA DLSS (via NGX on Vulkan) on frames rendered by OpenGL.
+// Iris DLSS bridge: runs NVIDIA DLSS (via NGX) inside Minecraft's own Vulkan device.
+//
+// Nothing here creates a Vulkan device of its own. The game's Vulkan backend (RenderPearl) creates
+// its instance and device through irisdlss_create_instance / irisdlss_create_device, which add the
+// extensions, features and queues NGX needs. Afterwards DLSS work is recorded straight into the
+// game's command buffers on images the game owns, so no memory or semaphore sharing is involved.
 #pragma once
 
 #include <cstdint>
@@ -19,59 +24,64 @@ enum IrisDlssStatus : int32_t {
     IRISDLSS_DRIVER_TOO_OLD = 6,
 };
 
-// Creates the Vulkan device and initializes NGX. deviceUuid (16 bytes) selects the GPU that also
-// runs the OpenGL context; pass null to take the first NVIDIA GPU. dataPath receives NGX logs and
-// must contain (or be next to) nvngx_dlss.dll.
-IRISDLSS_API int32_t irisdlss_init(const uint8_t* deviceUuid, const wchar_t* dataPath);
-
-IRISDLSS_API void irisdlss_shutdown();
-
 // Human-readable description of the last error / the selected device.
 IRISDLSS_API const char* irisdlss_last_message();
 
-// Shared images (index order): 0 = color in (RGBA8, render size), 1 = depth in (R32F, render size),
-// 2 = motion vectors (RG16F, render size, pixels, current -> previous), 3 = output (RGBA8, output size).
-enum { IRISDLSS_IMAGE_COUNT = 4 };
+// Folder with nvngx_dlss.dll / nvngx_dlssg.dll; NGX also writes its logs there. Call first.
+IRISDLSS_API void irisdlss_set_data_path(const wchar_t* dataPath);
 
-struct IrisDlssSharedImage {
-    uint64_t memoryHandle;  // Win32 NT handle for GL_EXT_memory_object_win32
-    uint64_t memorySize;
+// ---- Device creation (called in place of vkCreateInstance / vkCreateDevice) --------------------
+// Same contract as the Vulkan functions (VkResult). They create exactly what was asked for plus
+// NGX's needs; if that fails they retry with the unmodified create info. gipa is the
+// vkGetInstanceProcAddr of the loader the caller uses.
+
+IRISDLSS_API int32_t irisdlss_create_instance(uint64_t gipa, const void* createInfo, const void* allocator,
+    void* outInstance);
+
+// Also asks for one more queue in the graphics family (the presenter thread's) and an optical-flow
+// queue for DLSS Frame Generation, and remembers instance / physical device / device for NGX.
+IRISDLSS_API int32_t irisdlss_create_device(uint64_t gipa, uint64_t instance, uint64_t physicalDevice,
+    const void* createInfo, const void* allocator, void* outDevice);
+
+// Initializes NGX on the device made by irisdlss_create_device.
+IRISDLSS_API int32_t irisdlss_init();
+
+// Before the game destroys its device (after it waited for the GPU): releases everything.
+IRISDLSS_API void irisdlss_shutdown();
+
+// Once per vkQueueSubmit of the game's frame: retires NGX features no frame in flight still uses.
+IRISDLSS_API void irisdlss_frame_submitted();
+
+// An image owned by the game, in VK_IMAGE_LAYOUT_GENERAL (RenderPearl keeps all images there).
+struct IrisDlssImage {
+    uint64_t image;   // VkImage
+    uint64_t view;    // VkImageView (depth aspect for depth formats)
+    int32_t format;   // VkFormat
     uint32_t width;
     uint32_t height;
 };
 
-struct IrisDlssResources {
-    IrisDlssSharedImage images[IRISDLSS_IMAGE_COUNT];
-    uint64_t glDoneSemaphore;  // signaled by OpenGL when the inputs are written
-    uint64_t vkDoneSemaphore;  // signaled by Vulkan when the output is written
-};
-
-// (Re)creates the shared images, semaphores and the DLSS feature. Handles in `out` are owned by
-// the caller once imported into OpenGL (the GL import takes its own reference; close them after).
-IRISDLSS_API int32_t irisdlss_create_resources(uint32_t renderWidth, uint32_t renderHeight,
-    uint32_t outWidth, uint32_t outHeight, int32_t quality, int32_t depthInverted, int32_t preset, IrisDlssResources* out);
-
-IRISDLSS_API void irisdlss_destroy_resources();
-
-// Queues one DLSS evaluation: waits for glDone, upscales, signals vkDone. jitter is in render pixels.
-IRISDLSS_API int32_t irisdlss_evaluate(float jitterX, float jitterY, float mvScaleX, float mvScaleY,
-    int32_t reset, float sharpness);
+// ---- DLSS Super Resolution -------------------------------------------------------------------
 
 // Recommended render resolution for a DLSS quality mode (NVSDK_NGX_PerfQuality_Value) at the given
 // output size. Returns 0 on success.
 IRISDLSS_API int32_t irisdlss_optimal_settings(uint32_t outWidth, uint32_t outHeight, int32_t quality,
     uint32_t* renderWidth, uint32_t* renderHeight, float* sharpness);
 
-// Diagnostic: is DLSS Frame Generation usable here? Tries to create the feature once.
-IRISDLSS_API int32_t irisdlss_probe_frame_generation(uint32_t width, uint32_t height);
+// (Re)creates the DLSS feature; its setup work is recorded into commandBuffer.
+IRISDLSS_API int32_t irisdlss_create_resources(uint64_t commandBuffer, uint32_t renderWidth, uint32_t renderHeight,
+    uint32_t outWidth, uint32_t outHeight, int32_t quality, int32_t depthInverted, int32_t preset);
 
-// ---- Presentation through Vulkan (optionally with DLSS Frame Generation) ----
+IRISDLSS_API void irisdlss_destroy_resources();
 
-struct IrisDlssPresentResources {
-    IrisDlssSharedImage frame;   // RGBA8, window size: OpenGL copies the finished frame (GUI included) here
-    uint64_t readySemaphore;     // signaled by OpenGL once the frame (and the DLSS images) are written
-    uint64_t consumedSemaphore;  // signaled by Vulkan; OpenGL waits on it before writing them again
-};
+// Records one DLSS evaluation into commandBuffer (outside a render pass). Motion vectors are in
+// render pixels (current -> previous); output needs VK_IMAGE_USAGE_STORAGE_BIT. Images are back in
+// GENERAL afterwards. jitter is in render pixels.
+IRISDLSS_API int32_t irisdlss_evaluate(uint64_t commandBuffer, const IrisDlssImage* color, const IrisDlssImage* depth,
+    const IrisDlssImage* motion, const IrisDlssImage* output, float jitterX, float jitterY, float mvScaleX,
+    float mvScaleY, int32_t reset);
+
+// ---- Presentation (optionally with DLSS Frame Generation) --------------------------------------
 
 // Frame generation inputs, all float. Matrices are row-major (row-vector convention), without jitter,
 // in the orientation of the images (row 0 = first row in memory).
@@ -95,19 +105,23 @@ enum {
     IRISDLSS_FG_PARAM_COUNT = 86,
 };
 
-// Covers `parentHwnd`'s client area with a child window presented through a Vulkan swapchain.
-// externalSync = 0 skips the OpenGL semaphores (standalone tests). Recreate on window resize.
-IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t width, uint32_t height,
-    int32_t vsync, int32_t externalSync, IrisDlssPresentResources* out);
+// Covers parentHwnd's client area with a child window presented through a Vulkan swapchain on the
+// presenter queue. Recreate on window resize.
+IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t width, uint32_t height, int32_t vsync);
 
 IRISDLSS_API void irisdlss_presenter_destroy();
 
 IRISDLSS_API void irisdlss_presenter_set_vsync(int32_t vsync);
 
-// Queues the frame written into the shared frame image. fgParams (IRISDLSS_FG_PARAM_COUNT floats)
-// enables frame generation for this frame; null shows only the real frame. Needs the DLSS resources
-// from irisdlss_create_resources for frame generation (depth, motion vectors, hudless = output).
-IRISDLSS_API int32_t irisdlss_present(const float* fgParams);
+// Timeline semaphore the game's submission signals once a presented frame is rendered.
+IRISDLSS_API uint64_t irisdlss_presenter_timeline();
+
+// Records the copy of the finished frame (and, with fgParams and the three DLSS images, the DLSS-G
+// generated frame) into commandBuffer and queues it for the presenter thread. The caller signals
+// irisdlss_presenter_timeline() with *signalValue in the same submission. Images are image-sized
+// like the presenter (frame, hudless) or render-sized (depth, motion).
+IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImage* frame, const IrisDlssImage* depth,
+    const IrisDlssImage* motion, const IrisDlssImage* hudless, const float* fgParams, uint64_t* signalValue);
 
 // stats[0] = frames shown per second (generated ones included), stats[1] = 1 if frame generation ran
 // in the last second, stats[2] = 1 if the presenter thread hit an error (see last_message).

@@ -16,8 +16,9 @@ New-Item -ItemType Directory -Force (Join-Path $ngx "lib"), (Join-Path $ngx "bin
 Copy-Item -Recurse -Force (Join-Path $tmp "DLSS\include") $ngx
 Copy-Item -Force (Join-Path $tmp "DLSS\LICENSE.txt") $ngx
 function Find-One($name) {
-    $file = Get-ChildItem -Recurse (Join-Path $tmp "DLSS\lib") -Filter $name |
-        Where-Object { $_.FullName -notmatch "dev" } | Select-Object -First 1
+    # x64 only (the SDK also ships aarch64 / arm64ec builds); release DLLs, not the dev ones.
+    $file = Get-ChildItem -Recurse (Join-Path $tmp "DLSS\lib\Windows_x86_64") -Filter $name |
+        Where-Object { $_.FullName -notmatch "\\dev\\|\\vs20\d\d\\|\\khr\\|\\uwp\\" } | Select-Object -First 1
     if (-not $file) { throw "$name not found in the DLSS SDK" }
     return $file.FullName
 }

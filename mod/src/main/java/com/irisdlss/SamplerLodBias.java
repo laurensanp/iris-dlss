@@ -1,44 +1,28 @@
 package com.irisdlss;
 
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
-import it.unimi.dsi.fastutil.ints.IntSet;
-import org.lwjgl.opengl.GL14;
-import org.lwjgl.opengl.GL33;
-
 /**
- * Applies a texture LOD bias to every RenderPearl sampler object. When the world renders below
- * output resolution, mip selection otherwise picks levels for the low resolution and DLSS gets
- * blurry textures to reconstruct from.
+ * Texture LOD bias for RenderPearl's samplers. When the world renders below output resolution,
+ * mip selection otherwise picks levels for the low resolution and DLSS gets blurry textures to
+ * reconstruct from. Vulkan samplers are immutable and the game creates them at startup, so the bias
+ * comes from the configured quality mode and a changed mode applies after a restart.
  */
 public final class SamplerLodBias {
-
-    private static final IntSet samplers = new IntOpenHashSet();
-    private static float bias;
 
     private SamplerLodBias() {
     }
 
-    public static void register(int sampler) {
-        samplers.add(sampler);
-        if (bias != 0.0F) {
-            GL33.glSamplerParameterf(sampler, GL14.GL_TEXTURE_LOD_BIAS, bias);
+    /** VulkanGpuSampler creation: log2(render / output), the DLSS guideline, at most one level. */
+    public static float vulkanBias() {
+        if (!DlssConfig.enabled || !DlssConfig.textureLodBias) {
+            return 0.0F;
         }
-    }
-
-    public static void unregister(int sampler) {
-        samplers.remove(sampler);
-    }
-
-    /** Render thread. */
-    public static void apply(float newBias) {
-        if (Math.abs(newBias - bias) < 1e-4F) {
-            return;
-        }
-        bias = newBias;
-        for (int sampler : samplers) {
-            GL33.glSamplerParameterf(sampler, GL14.GL_TEXTURE_LOD_BIAS, bias);
-        }
-        IrisDlss.LOGGER.info("Iris DLSS: texture LOD bias {} on {} samplers", String.format("%.3f", bias),
-            samplers.size());
+        double scale = switch (DlssConfig.quality) {
+            case DLAA -> 1.0;
+            case QUALITY -> 2.0 / 3.0;
+            case BALANCED -> 0.58;
+            case PERFORMANCE -> 0.5;
+            case ULTRA_PERFORMANCE -> 1.0 / 3.0;
+        };
+        return Math.max(-1.0F, (float) (Math.log(scale) / Math.log(2.0)));
     }
 }

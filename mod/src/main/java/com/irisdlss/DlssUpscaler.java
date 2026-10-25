@@ -1,85 +1,93 @@
 package com.irisdlss;
 
+import com.mojang.blaze3d.buffers.Std140Builder;
+import com.mojang.blaze3d.buffers.Std140SizeCalculator;
 import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.renderpearl.api.GpuFormat;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
+import com.mojang.renderpearl.api.commands.RenderPass;
+import com.mojang.renderpearl.api.pipeline.BindGroupLayout;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.CompiledRenderPipeline;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.ShaderSource;
+import com.mojang.renderpearl.api.pipeline.ShaderType;
+import com.mojang.renderpearl.api.pipeline.UniformType;
+import com.mojang.renderpearl.api.textures.FilterMode;
+import com.mojang.renderpearl.api.textures.GpuSampler;
 import com.mojang.renderpearl.api.textures.GpuTexture;
-import com.mojang.renderpearl.backend.opengl.GlTexture;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import java.nio.ByteBuffer;
-import net.minecraft.client.renderer.state.level.CameraRenderState;
-import net.minecraft.world.phys.Vec3;
+import java.util.Optional;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
-import org.lwjgl.opengl.EXTMemoryObject;
-import org.lwjgl.opengl.EXTMemoryObjectWin32;
-import org.lwjgl.opengl.EXTSemaphore;
-import org.lwjgl.opengl.EXTSemaphoreWin32;
-import org.lwjgl.opengl.GL;
-import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL13;
-import org.lwjgl.opengl.GL20;
-import org.lwjgl.opengl.GL30;
-import org.lwjgl.opengl.GL33;
-import org.lwjgl.opengl.GL43;
-import org.lwjgl.opengl.GLCapabilities;
 import org.lwjgl.system.MemoryStack;
 
 /**
- * Runs DLSS on the world image: the world renders into a low-resolution main target with a
- * jittered projection; afterwards color, depth and camera-derived motion vectors are handed to
- * the Vulkan side through shared memory, and the upscaled result lands in the full-size target that
- * the GUI is drawn into.
+ * Runs DLSS on the world image, entirely on the game's Vulkan device: the world renders into a
+ * low-resolution main target with a jittered projection; afterwards a pass writes camera-derived
+ * motion vectors, DLSS is recorded into the game's command buffer on the game's own color and depth
+ * images, and the upscaled (and sharpened) result lands in the full-size target that the GUI is
+ * drawn into.
  */
 public final class DlssUpscaler {
 
-    private static final int COLOR = 0;
-    private static final int DEPTH = 1;
-    private static final int MOTION = 2;
-    private static final int OUTPUT = 3;
-    private static final int[] GL_FORMATS = {GL11.GL_RGBA8, GL30.GL_R32F, GL30.GL_RG16F, GL11.GL_RGBA8};
+    private static final String NAMESPACE = "iris-dlss";
 
     private static final String VERTEX_SHADER = """
-        #version 330 core
+        #version 330
+        #extension GL_ARB_separate_shader_objects : require
         void main() {
-            vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+            vec2 p = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
             gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
         }
         """;
 
     // Camera-only motion vectors: reproject each pixel's position with last frame's camera.
     // Values are render-resolution pixels pointing from the current to the previous position.
-    private static final String FRAGMENT_SHADER = """
-        #version 330 core
-        uniform sampler2D uDepth;
-        uniform mat4 uInvCurrent;
-        uniform mat4 uPrevious;
-        uniform vec3 uCameraDelta;
-        uniform vec2 uRenderSize;
-        uniform float uHandDistance;
-        uniform int uZeroToOne;
-        uniform int uDepthInverted;
-        layout(location = 0) out float outDepth;
-        layout(location = 1) out vec2 outMotion;
+    private static final String MOTION_SHADER = """
+        #version 330
+        #extension GL_ARB_separate_shader_objects : require
+        uniform sampler2D DepthSampler;
+        layout(std140) uniform MotionInfo {
+            mat4 InvCurrent;
+            mat4 Previous;
+            vec3 CameraDelta;
+            float HandDistance;
+            vec2 RenderSize;
+            int ZeroToOne;
+            int DepthInverted;
+        };
+        layout(location = 0) out vec2 outMotion;
         bool finite(vec2 v) {
             return !any(isnan(v)) && !any(isinf(v));
         }
         void main() {
             ivec2 pixel = ivec2(gl_FragCoord.xy);
-            float depth = texelFetch(uDepth, pixel, 0).r;
-            vec2 uv = (vec2(pixel) + 0.5) / uRenderSize;
+            float depth = texelFetch(DepthSampler, pixel, 0).r;
+            vec2 uv = (vec2(pixel) + 0.5) / RenderSize;
             // Sky / far plane (and Voxy LODs drawn past it): no parallax, rotation-only reprojection.
-            bool far = uDepthInverted != 0 ? depth <= 1e-6 : depth >= 1.0 - 1e-6;
-            float sampleDepth = far ? (uDepthInverted != 0 ? 1e-6 : 1.0 - 1e-6) : depth;
-            float ndcZ = uZeroToOne != 0 ? sampleDepth : sampleDepth * 2.0 - 1.0;
-            vec4 position = uInvCurrent * vec4(uv * 2.0 - 1.0, ndcZ, 1.0);
+            bool far = DepthInverted != 0 ? depth <= 1e-6 : depth >= 1.0 - 1e-6;
+            float sampleDepth = far ? (DepthInverted != 0 ? 1e-6 : 1.0 - 1e-6) : depth;
+            float ndcZ = ZeroToOne != 0 ? sampleDepth : sampleDepth * 2.0 - 1.0;
+            vec4 position = InvCurrent * vec4(uv * 2.0 - 1.0, ndcZ, 1.0);
             vec2 motion = vec2(0.0);
             if (abs(position.w) > 1e-8) {
                 position.xyz /= position.w;
-                if (length(position.xyz) > uHandDistance) {
-                    vec3 offset = far ? vec3(0.0) : uCameraDelta;
-                    vec4 previous = uPrevious * vec4(position.xyz + offset, 1.0);
+                if (length(position.xyz) > HandDistance) {
+                    vec3 offset = far ? vec3(0.0) : CameraDelta;
+                    vec4 previous = Previous * vec4(position.xyz + offset, 1.0);
                     if (previous.w > 1e-5) {
                         vec2 previousUv = previous.xy / previous.w * 0.5 + 0.5;
-                        motion = (previousUv - uv) * uRenderSize;
+                        motion = (previousUv - uv) * RenderSize;
                     }
                 }
             }
@@ -87,22 +95,23 @@ public final class DlssUpscaler {
             if (!finite(motion)) {
                 motion = vec2(0.0);
             }
-            motion = clamp(motion, -uRenderSize, uRenderSize);
-            outDepth = depth;
-            outMotion = motion;
+            outMotion = clamp(motion, -RenderSize, RenderSize);
         }
         """;
 
     // Contrast-adaptive sharpening (after AMD FidelityFX CAS): restores the crispness of native
     // rendering that the temporal reconstruction softens; strength 0..1.
     private static final String SHARPEN_SHADER = """
-        #version 330 core
-        uniform sampler2D uColor;
-        uniform float uSharpness;
-        uniform ivec2 uSize;
-        layout(location = 0) out vec4 outColor;
+        #version 330
+        #extension GL_ARB_separate_shader_objects : require
+        uniform sampler2D ColorSampler;
+        layout(std140) uniform SharpenInfo {
+            float Sharpness;
+            ivec2 Size;
+        };
+        layout(location = 0) out vec4 fragColor;
         vec3 at(ivec2 p) {
-            return texelFetch(uColor, clamp(p, ivec2(0), uSize - 1), 0).rgb;
+            return texelFetch(ColorSampler, clamp(p, ivec2(0), Size - 1), 0).rgb;
         }
         void main() {
             ivec2 p = ivec2(gl_FragCoord.xy);
@@ -114,11 +123,45 @@ public final class DlssUpscaler {
             vec3 lo = min(c, min(min(n, s), min(e, w)));
             vec3 hi = max(c, max(max(n, s), max(e, w)));
             vec3 amount = sqrt(clamp(min(lo, 1.0 - hi) / max(hi, vec3(1e-4)), 0.0, 1.0));
-            vec3 weight = amount * (-1.0 / mix(8.0, 4.5, uSharpness));
+            vec3 weight = amount * (-1.0 / mix(8.0, 4.5, Sharpness));
             vec3 result = (c + (n + s + e + w) * weight) / (1.0 + 4.0 * weight);
-            outColor = vec4(clamp(result, 0.0, 1.0), 1.0);
+            fragColor = vec4(clamp(result, 0.0, 1.0), 1.0);
         }
         """;
+
+    /** Our shaders, handed straight to RenderPearl's GLSL -> SPIR-V compiler. */
+    private static final ShaderSource SHADERS = new ShaderSource() {
+        @Override
+        public String getShader(Identifier id, ShaderType type) {
+            return switch (id.toString()) {
+                case NAMESPACE + ":fullscreen" -> VERTEX_SHADER;
+                case NAMESPACE + ":motion_vectors" -> MOTION_SHADER;
+                case NAMESPACE + ":sharpen" -> SHARPEN_SHADER;
+                default -> null;
+            };
+        }
+
+        @Override
+        public CachedIncludeSource getInclude(Identifier id) {
+            return null;
+        }
+
+        @Override
+        public void close() {
+        }
+    };
+
+    private static final RenderPipeline MOTION_PIPELINE = fullscreenPipeline("motion_vectors",
+        BindGroupLayout.builder().withUniform("DepthSampler", UniformType.COMBINED_IMAGE_SAMPLER)
+            .withUniform("MotionInfo", UniformType.UNIFORM_BUFFER).build(),
+        new ColorTargetState(Optional.empty(), GpuFormat.RG16_FLOAT, ColorTargetState.WRITE_ALL));
+    private static final RenderPipeline SHARPEN_PIPELINE = fullscreenPipeline("sharpen",
+        BindGroupLayout.builder().withUniform("ColorSampler", UniformType.COMBINED_IMAGE_SAMPLER)
+            .withUniform("SharpenInfo", UniformType.UNIFORM_BUFFER).build(),
+        ColorTargetState.DEFAULT);
+    private static final int MOTION_INFO_SIZE = new Std140SizeCalculator().putMat4f().putMat4f().putVec3().putFloat()
+        .putVec2().putInt().putInt().get();
+    private static final int SHARPEN_INFO_SIZE = new Std140SizeCalculator().putFloat().putIVec2().get();
 
     private static boolean initialized;
     private static boolean failed;
@@ -132,19 +175,14 @@ public final class DlssUpscaler {
     private static DlssConfig.Preset appliedPreset = DlssConfig.Preset.K;
     private static String failureReason = "";
 
-    private static final int[] memoryObjects = new int[4];
-    private static final int[] textures = new int[4];
-    private static final long[] memoryHandles = new long[4];
-    private static int glDoneSemaphore;
-    private static int vkDoneSemaphore;
-    private static long glDoneHandle;
-    private static long vkDoneHandle;
-    private static int motionFramebuffer;
-    private static int readFramebuffer;
-    private static int drawFramebuffer;
-    private static int program;
-    private static int sharpenProgram;
-    private static int vertexArray;
+    private static CompiledRenderPipeline motionPipeline;
+    private static CompiledRenderPipeline sharpenPipeline;
+    private static GpuTexture motionTexture;
+    private static GpuTextureView motionView;
+    private static GpuTexture outputTexture;
+    private static GpuTextureView outputView;
+    /** Depth of the last upscaled frame (the low-resolution main target's). */
+    private static GpuTextureView lastDepthView;
 
     private static int jitterIndex;
     private static float jitterX;
@@ -169,6 +207,18 @@ public final class DlssUpscaler {
     private DlssUpscaler() {
     }
 
+    private static RenderPipeline fullscreenPipeline(String name, BindGroupLayout layout, ColorTargetState target) {
+        return RenderPipeline.builder()
+            .withLocation(Identifier.fromNamespaceAndPath(NAMESPACE, "pipeline/" + name))
+            .withVertexShader(Identifier.fromNamespaceAndPath(NAMESPACE, "fullscreen"))
+            .withFragmentShader(Identifier.fromNamespaceAndPath(NAMESPACE, name))
+            .withBindGroupLayout(layout)
+            .withColorTargetState(target)
+            .withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
+            .withCull(false)
+            .build();
+    }
+
     public static boolean isActive() {
         return DlssConfig.enabled && !failed;
     }
@@ -186,12 +236,16 @@ public final class DlssUpscaler {
     }
 
     public static boolean hasResources() {
-        return textures[0] != 0;
+        return outputTexture != null;
     }
 
-    /** Images Vulkan reads after the frame: depth, motion vectors, upscaled (hudless) output. */
-    public static int[] sharedTextures() {
-        return textures[0] == 0 ? new int[0] : new int[] {textures[DEPTH], textures[MOTION], textures[OUTPUT]};
+    /** Frame generation inputs of the last frame: depth, motion vectors, hudless output; or null. */
+    public static long[] frameGenImages() {
+        if (outputView == null || lastDepthView == null || lastDepthView.isClosed()) {
+            return null;
+        }
+        return VulkanAccess.concat(VulkanAccess.describe(lastDepthView), VulkanAccess.describe(motionView),
+            VulkanAccess.describe(outputView));
     }
 
     /** This frame's frame generation inputs, or null (no world this frame, or a menu is open). */
@@ -209,7 +263,7 @@ public final class DlssUpscaler {
         return frameGenParams;
     }
 
-    /** F3 line: world on OpenGL (Iris), upscaling on Vulkan. */
+    /** F3 line. */
     public static String statusLine() {
         if (!DlssConfig.enabled) {
             return "DLSS: off";
@@ -217,7 +271,7 @@ public final class DlssUpscaler {
         if (failed) {
             return "DLSS: unavailable (" + failureReason + ")";
         }
-        if (textures[0] == 0) {
+        if (outputTexture == null) {
             return "DLSS: starting";
         }
         return String.format("Vulkan DLSS SR %s, preset %s: %dx%d -> %dx%d, sharpen %d%%", appliedQuality.label,
@@ -236,41 +290,38 @@ public final class DlssUpscaler {
     private static void disable(String reason) {
         failed = true;
         failureReason = reason;
-        SamplerLodBias.apply(0.0F);
         IrisDlss.LOGGER.error("Iris DLSS disabled: {}", reason);
     }
 
-    /** Render thread, OpenGL current. Sets up DLSS for this output size; false = run vanilla. */
+    /** Render thread, start of the frame. Sets up DLSS for this output size; false = run vanilla. */
     public static boolean prepare(int windowWidth, int windowHeight) {
-        if (!DlssConfig.enabled && textures[0] != 0) {
+        if (!DlssConfig.enabled && outputTexture != null) {
             releaseResources();
-            SamplerLodBias.apply(0.0F);
         }
         if (!isActive() || windowWidth <= 0 || windowHeight <= 0) {
             return false;
         }
         if (!initialized) {
             initialized = true;
-            GLCapabilities caps = GL.getCapabilities();
-            if (!caps.GL_EXT_memory_object_win32 || !caps.GL_EXT_semaphore_win32 || !caps.GL_ARB_copy_image) {
-                disable("OpenGL lacks GL_EXT_memory_object_win32 / GL_EXT_semaphore_win32 / copy_image");
+            if (!VulkanAccess.isVulkan()) {
+                disable("needs the Vulkan graphics API (Video Settings > Graphics API)");
                 return false;
             }
-            int status = DlssNative.init(deviceUuid(), IrisDlss.nativeDir.toAbsolutePath().toString());
+            int status = DlssNative.init();
             if (status != DlssNative.OK) {
                 disable(DlssNative.message());
                 return false;
             }
             IrisDlss.LOGGER.info("Iris DLSS: {}", DlssNative.message());
-            program = createProgram(FRAGMENT_SHADER);
-            sharpenProgram = createProgram(SHARPEN_SHADER);
-            vertexArray = GL30.glGenVertexArrays();
-            motionFramebuffer = GL30.glGenFramebuffers();
-            readFramebuffer = GL30.glGenFramebuffers();
-            drawFramebuffer = GL30.glGenFramebuffers();
+            motionPipeline = compile(MOTION_PIPELINE);
+            sharpenPipeline = compile(SHARPEN_PIPELINE);
+            if (motionPipeline == null || sharpenPipeline == null) {
+                disable("could not compile the motion vector / sharpening shaders");
+                return false;
+            }
         }
         boolean inverted = DepthConvention.depthInverted();
-        if (windowWidth != outputWidth || windowHeight != outputHeight || textures[0] == 0
+        if (windowWidth != outputWidth || windowHeight != outputHeight || outputTexture == null
             || inverted != depthInverted || DlssConfig.quality != appliedQuality
             || DlssConfig.preset != appliedPreset) {
             int[] optimal = DlssNative.optimalSettings(windowWidth, windowHeight, DlssConfig.quality.ngx);
@@ -279,98 +330,72 @@ public final class DlssUpscaler {
                 return false;
             }
             releaseResources();
-            long[] resources = DlssNative.createResources(optimal[0], optimal[1], windowWidth, windowHeight,
-                DlssConfig.quality.ngx, inverted, DlssConfig.preset.ngx);
             depthInverted = inverted;
             appliedQuality = DlssConfig.quality;
             appliedPreset = DlssConfig.preset;
-            if (resources == null) {
+            int status = DlssNative.createResources(VulkanAccess.commandBuffer(), optimal[0], optimal[1], windowWidth,
+                windowHeight, DlssConfig.quality.ngx, inverted, DlssConfig.preset.ngx);
+            if (status != DlssNative.OK) {
                 disable(DlssNative.message());
                 return false;
             }
-            importResources(resources);
             renderWidth = optimal[0];
             renderHeight = optimal[1];
             outputWidth = windowWidth;
             outputHeight = windowHeight;
+            motionTexture = RenderSystem.getDevice().createTexture("DLSS motion vectors",
+                GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_SRC,
+                GpuFormat.RG16_FLOAT, renderWidth, renderHeight, 1, 1);
+            motionView = RenderSystem.getDevice().createTextureView(motionTexture);
+            outputTexture = VulkanAccess.createStorageTexture("DLSS output", GpuTexture.USAGE_RENDER_ATTACHMENT
+                | GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_SRC | GpuTexture.USAGE_COPY_DST,
+                GpuFormat.RGBA8_UNORM, outputWidth, outputHeight);
+            outputView = RenderSystem.getDevice().createTextureView(outputTexture);
             resetHistory = true;
-            IrisDlss.LOGGER.info("Iris DLSS: {} {} preset {} (depth {}, clip control {})", DlssNative.message(),
+            IrisDlss.LOGGER.info("Iris DLSS: {} {} preset {} (depth {}, texture LOD bias {})", DlssNative.message(),
                 appliedQuality.label, appliedPreset.name(), inverted ? "reverse-Z" : "classic",
-                DepthConvention.zeroToOne() ? "on" : "off");
+                String.format("%.2f", SamplerLodBias.vulkanBias()));
         }
-        // DLSS guideline: textures sampled with log2(render / output) LOD bias keep output-size detail.
-        SamplerLodBias.apply(DlssConfig.textureLodBias
-            ? Math.max(-1.0F, (float) (Math.log((double) renderWidth / outputWidth) / Math.log(2.0))) : 0.0F);
         return true;
     }
 
-    private static byte[] deviceUuid() {
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            ByteBuffer uuid = stack.malloc(EXTMemoryObject.GL_UUID_SIZE_EXT);
-            EXTMemoryObject.glGetUnsignedBytei_vEXT(EXTMemoryObject.GL_DEVICE_UUID_EXT, 0, uuid);
-            byte[] bytes = new byte[EXTMemoryObject.GL_UUID_SIZE_EXT];
-            uuid.get(bytes);
-            return bytes;
-        }
-    }
-
-    private static void importResources(long[] r) {
-        int previousTexture = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
-        for (int i = 0; i < 4; i++) {
-            memoryHandles[i] = r[i * 4];
-            memoryObjects[i] = EXTMemoryObject.glCreateMemoryObjectsEXT();
-            EXTMemoryObject.glMemoryObjectParameteriEXT(memoryObjects[i],
-                EXTMemoryObject.GL_DEDICATED_MEMORY_OBJECT_EXT, GL11.GL_TRUE);
-            EXTMemoryObjectWin32.glImportMemoryWin32HandleEXT(memoryObjects[i], r[i * 4 + 1],
-                EXTMemoryObjectWin32.GL_HANDLE_TYPE_OPAQUE_WIN32_EXT, memoryHandles[i]);
-            textures[i] = GL11.glGenTextures();
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, textures[i]);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, EXTMemoryObject.GL_TEXTURE_TILING_EXT,
-                EXTMemoryObject.GL_OPTIMAL_TILING_EXT);
-            EXTMemoryObject.glTexStorageMem2DEXT(GL11.GL_TEXTURE_2D, 1, GL_FORMATS[i], (int) r[i * 4 + 2],
-                (int) r[i * 4 + 3], memoryObjects[i], 0);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
-        }
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, previousTexture);
-        glDoneHandle = r[16];
-        vkDoneHandle = r[17];
-        glDoneSemaphore = EXTSemaphore.glGenSemaphoresEXT();
-        vkDoneSemaphore = EXTSemaphore.glGenSemaphoresEXT();
-        EXTSemaphoreWin32.glImportSemaphoreWin32HandleEXT(glDoneSemaphore,
-            EXTSemaphoreWin32.GL_HANDLE_TYPE_OPAQUE_WIN32_EXT, glDoneHandle);
-        EXTSemaphoreWin32.glImportSemaphoreWin32HandleEXT(vkDoneSemaphore,
-            EXTSemaphoreWin32.GL_HANDLE_TYPE_OPAQUE_WIN32_EXT, vkDoneHandle);
-
-        int previousDraw = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
-        GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, motionFramebuffer);
-        GL30.glFramebufferTexture2D(GL30.GL_DRAW_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, textures[DEPTH], 0);
-        GL30.glFramebufferTexture2D(GL30.GL_DRAW_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT1, GL11.GL_TEXTURE_2D, textures[MOTION], 0);
-        GL20.glDrawBuffers(new int[] {GL30.GL_COLOR_ATTACHMENT0, GL30.GL_COLOR_ATTACHMENT1});
-        int status = GL30.glCheckFramebufferStatus(GL30.GL_DRAW_FRAMEBUFFER);
-        GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, previousDraw);
-        if (status != GL30.GL_FRAMEBUFFER_COMPLETE) {
-            disable("motion framebuffer incomplete 0x" + Integer.toHexString(status));
+    private static CompiledRenderPipeline compile(RenderPipeline pipeline) {
+        try {
+            return RenderSystem.getDevice().compilePipeline(pipeline, SHADERS, Runnable::run).join().finishCompile();
+        } catch (RuntimeException e) {
+            IrisDlss.LOGGER.error("Iris DLSS: pipeline {} failed", pipeline.getLocation(), e);
+            return null;
         }
     }
 
     private static void releaseResources() {
-        if (textures[0] == 0) {
+        if (outputTexture == null) {
             return;
         }
-        GL11.glFinish();
-        for (int i = 0; i < 4; i++) {
-            GL11.glDeleteTextures(textures[i]);
-            EXTMemoryObject.glDeleteMemoryObjectsEXT(memoryObjects[i]);
-            DlssNative.closeHandle(memoryHandles[i]);
-            textures[i] = 0;
-            memoryObjects[i] = 0;
-        }
-        EXTSemaphore.glDeleteSemaphoresEXT(glDoneSemaphore);
-        EXTSemaphore.glDeleteSemaphoresEXT(vkDoneSemaphore);
-        DlssNative.closeHandle(glDoneHandle);
-        DlssNative.closeHandle(vkDoneHandle);
+        // RenderPearl destroys textures once no frame in flight uses them; the bridge does the same
+        // for the DLSS feature.
         DlssNative.destroyResources();
+        motionView.close();
+        motionTexture.close();
+        outputView.close();
+        outputTexture.close();
+        motionView = null;
+        motionTexture = null;
+        outputView = null;
+        outputTexture = null;
+        lastDepthView = null;
+    }
+
+    /** The game's Vulkan device is being destroyed (it already waited for the GPU). */
+    public static void shutdown() {
+        if (!IrisDlss.isNativeLoaded()) {
+            return;
+        }
+        VulkanPresenter.stop();
+        DlssNative.shutdown();
+        initialized = false;
+        failed = true;
+        failureReason = "shut down";
     }
 
     /** Camera.extractRenderState: jitter the projection by a sub-pixel Halton offset. */
@@ -415,19 +440,16 @@ public final class DlssUpscaler {
         return result;
     }
 
-    private static int glId(GpuTexture texture) {
-        return texture instanceof GlTexture glTexture ? glTexture.glId() : 0;
-    }
-
     /** Upscales low's color into full's color. Render thread, after the world is complete. */
     public static void process(RenderTarget low, RenderTarget full) {
-        if (!isActive() || textures[0] == 0 || low.width != renderWidth || low.height != renderHeight) {
+        if (!isActive() || outputTexture == null || low.width != renderWidth || low.height != renderHeight) {
             return;
         }
-        int lowColor = glId(low.getColorTexture());
-        int lowDepth = glId(low.getDepthTexture());
-        int fullColor = glId(full.getColorTexture());
-        if (lowColor == 0 || lowDepth == 0 || fullColor == 0) {
+        GpuTextureView lowColor = low.getColorTextureView();
+        GpuTextureView lowDepth = low.getDepthTextureView();
+        GpuTexture fullColor = full.getColorTexture();
+        GpuTextureView fullColorView = full.getColorTextureView();
+        if (lowColor == null || lowDepth == null || fullColor == null || fullColorView == null) {
             return;
         }
 
@@ -450,86 +472,66 @@ public final class DlssUpscaler {
             previousPosition = currentPosition;
         }
 
-        GlState state = GlState.capture();
-        try {
-            // Vulkan may still be reading last frame's images for presentation / frame generation.
-            VulkanPresenter.awaitVulkan();
-            GL43.glCopyImageSubData(lowColor, GL11.GL_TEXTURE_2D, 0, 0, 0, 0, textures[COLOR], GL11.GL_TEXTURE_2D,
-                0, 0, 0, 0, renderWidth, renderHeight, 1);
-
-            GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, motionFramebuffer);
-            GL11.glViewport(0, 0, renderWidth, renderHeight);
-            GL11.glDisable(GL11.GL_DEPTH_TEST);
-            GL11.glDisable(GL11.GL_BLEND);
-            GL11.glDisable(GL11.GL_CULL_FACE);
-            GL11.glDisable(GL11.GL_SCISSOR_TEST);
-            GL11.glColorMask(true, true, true, true);
-            GL20.glUseProgram(program);
-            GL30.glBindVertexArray(vertexArray);
-            GL13.glActiveTexture(GL13.GL_TEXTURE0);
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, lowDepth);
-            GL33.glBindSampler(0, 0);
-            try (MemoryStack stack = MemoryStack.stackPush()) {
-                GL20.glUniformMatrix4fv(GL20.glGetUniformLocation(program, "uInvCurrent"), false,
-                    new Matrix4f(currentViewProjection).invert().get(stack.mallocFloat(16)));
-                GL20.glUniformMatrix4fv(GL20.glGetUniformLocation(program, "uPrevious"), false,
-                    previousViewProjection.get(stack.mallocFloat(16)));
-            }
-            Vec3 delta = currentPosition.subtract(previousPosition);
-            GL20.glUniform3f(GL20.glGetUniformLocation(program, "uCameraDelta"), (float) delta.x, (float) delta.y,
-                (float) delta.z);
-            GL20.glUniform2f(GL20.glGetUniformLocation(program, "uRenderSize"), renderWidth, renderHeight);
-            GL20.glUniform1f(GL20.glGetUniformLocation(program, "uHandDistance"), DlssConfig.handDistance);
-            GL20.glUniform1i(GL20.glGetUniformLocation(program, "uDepth"), 0);
-            GL20.glUniform1i(GL20.glGetUniformLocation(program, "uZeroToOne"), DepthConvention.zeroToOne() ? 1 : 0);
-            GL20.glUniform1i(GL20.glGetUniformLocation(program, "uDepthInverted"), depthInverted ? 1 : 0);
-            GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, 3);
-
-            int[] layouts = {EXTSemaphore.GL_LAYOUT_GENERAL_EXT, EXTSemaphore.GL_LAYOUT_GENERAL_EXT,
-                EXTSemaphore.GL_LAYOUT_GENERAL_EXT, EXTSemaphore.GL_LAYOUT_GENERAL_EXT};
-            EXTSemaphore.glSignalSemaphoreEXT(glDoneSemaphore, new int[0], textures, layouts);
-            GL11.glFlush();
-
-            int status = DlssNative.evaluate(jitterX * DlssConfig.jitterSignX, jitterY * DlssConfig.jitterSignY,
-                1.0F, 1.0F, resetHistory, 0.0F);
-            if (status != DlssNative.OK) {
-                disable(DlssNative.message());
-                return;
-            }
-            EXTSemaphore.glWaitSemaphoreEXT(vkDoneSemaphore, new int[0], textures, layouts);
-
-            GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, drawFramebuffer);
-            GL30.glFramebufferTexture2D(GL30.GL_DRAW_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D,
-                fullColor, 0);
-            boolean sharpen = DlssConfig.sharpness > 0.001F && full.width == outputWidth
-                && full.height == outputHeight;
-            if (sharpen) {
-                GL11.glViewport(0, 0, outputWidth, outputHeight);
-                GL20.glUseProgram(sharpenProgram);
-                GL11.glBindTexture(GL11.GL_TEXTURE_2D, textures[OUTPUT]);
-                GL20.glUniform1i(GL20.glGetUniformLocation(sharpenProgram, "uColor"), 0);
-                GL20.glUniform1f(GL20.glGetUniformLocation(sharpenProgram, "uSharpness"),
-                    Math.min(1.0F, DlssConfig.sharpness));
-                GL20.glUniform2i(GL20.glGetUniformLocation(sharpenProgram, "uSize"), outputWidth, outputHeight);
-                GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, 3);
-                if (VulkanPresenter.isRunning() && DlssConfig.frameGeneration) {
-                    // Frame generation compares the final frame with this "hudless" one to find the GUI.
-                    GL43.glCopyImageSubData(fullColor, GL11.GL_TEXTURE_2D, 0, 0, 0, 0, textures[OUTPUT],
-                        GL11.GL_TEXTURE_2D, 0, 0, 0, 0, outputWidth, outputHeight, 1);
-                }
-            } else {
-                GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, readFramebuffer);
-                GL30.glFramebufferTexture2D(GL30.GL_READ_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D,
-                    textures[OUTPUT], 0);
-                GL30.glBlitFramebuffer(0, 0, outputWidth, outputHeight, 0, 0, full.width, full.height,
-                    GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
-            }
-            GL30.glFramebufferTexture2D(GL30.GL_DRAW_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, 0, 0);
-        } finally {
-            state.restore();
+        CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+        GpuSampler nearest = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
+        int alignment = RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment();
+        Vec3 delta = currentPosition.subtract(previousPosition);
+        GpuBufferSlice motionInfo;
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            ByteBuffer data = Std140Builder.onStack(stack, MOTION_INFO_SIZE)
+                .putMat4f(new Matrix4f(currentViewProjection).invert())
+                .putMat4f(previousViewProjection)
+                .putVec3((float) delta.x, (float) delta.y, (float) delta.z)
+                .putFloat(DlssConfig.handDistance)
+                .putVec2(renderWidth, renderHeight)
+                .putInt(DepthConvention.zeroToOne() ? 1 : 0)
+                .putInt(depthInverted ? 1 : 0)
+                .get();
+            motionInfo = encoder.transientMemory().uploadGpu(data, alignment, GpuBuffer.USAGE_UNIFORM);
+        }
+        try (RenderPass pass = encoder.createRenderPass(() -> "DLSS motion vectors", motionView, Optional.empty())) {
+            pass.setPipeline(motionPipeline);
+            pass.setUniform("DepthSampler", lowDepth, nearest);
+            pass.setUniform("MotionInfo", motionInfo);
+            pass.draw(3, 1, 0, 0);
         }
 
-        buildFrameGenParams(currentViewProjection, currentPosition.subtract(previousPosition));
+        int status = DlssNative.evaluate(VulkanAccess.commandBuffer(),
+            VulkanAccess.concat(VulkanAccess.describe(lowColor), VulkanAccess.describe(lowDepth),
+                VulkanAccess.describe(motionView), VulkanAccess.describe(outputView)),
+            jitterX * DlssConfig.jitterSignX, jitterY * DlssConfig.jitterSignY, 1.0F, 1.0F, resetHistory);
+        if (status != DlssNative.OK) {
+            disable(DlssNative.message());
+            return;
+        }
+        lastDepthView = lowDepth;
+
+        if (full.width == outputWidth && full.height == outputHeight) {
+            if (DlssConfig.sharpness > 0.001F) {
+                GpuBufferSlice sharpenInfo;
+                try (MemoryStack stack = MemoryStack.stackPush()) {
+                    ByteBuffer data = Std140Builder.onStack(stack, SHARPEN_INFO_SIZE)
+                        .putFloat(Math.min(1.0F, DlssConfig.sharpness))
+                        .putIVec2(outputWidth, outputHeight)
+                        .get();
+                    sharpenInfo = encoder.transientMemory().uploadGpu(data, alignment, GpuBuffer.USAGE_UNIFORM);
+                }
+                try (RenderPass pass = encoder.createRenderPass(() -> "DLSS sharpen", fullColorView, Optional.empty())) {
+                    pass.setPipeline(sharpenPipeline);
+                    pass.setUniform("ColorSampler", outputView, nearest);
+                    pass.setUniform("SharpenInfo", sharpenInfo);
+                    pass.draw(3, 1, 0, 0);
+                }
+                if (VulkanPresenter.isRunning() && DlssConfig.frameGeneration) {
+                    // Frame generation compares the final frame with this "hudless" one to find the GUI.
+                    encoder.copyTextureToTexture(fullColor, outputTexture, 0, 0, 0, 0, 0, outputWidth, outputHeight);
+                }
+            } else {
+                encoder.copyTextureToTexture(outputTexture, fullColor, 0, 0, 0, 0, 0, outputWidth, outputHeight);
+            }
+        }
+
+        buildFrameGenParams(currentViewProjection, delta);
         previousViewProjection.set(currentViewProjection);
         previousPosition = currentPosition;
         hasPrevious = true;
@@ -537,9 +539,10 @@ public final class DlssUpscaler {
     }
 
     /**
-     * DLSS-G camera description. Our images start at the bottom row while DLSS-G reads row 0 as the
-     * top: flip clip y. Depth is mapped to [0, 1]. JOML's column-major arrays are exactly the
-     * row-major, row-vector matrices NGX expects.
+     * DLSS-G camera description. The game's images start at the bottom row (RenderPearl keeps
+     * OpenGL's orientation on Vulkan and flips when it presents) while DLSS-G reads row 0 as the top:
+     * flip clip y. Depth is mapped to [0, 1]. JOML's column-major arrays are exactly the row-major,
+     * row-vector matrices NGX expects.
      */
     private static void buildFrameGenParams(Matrix4f currentViewProjection, Vec3 delta) {
         float[] p = frameGenParams;
@@ -583,83 +586,5 @@ public final class DlssUpscaler {
         p[84] = resetHistory ? 1.0F : 0.0F;
         p[85] = depthInverted ? 1.0F : 0.0F;
         frameGenParamsReady = true;
-    }
-
-    private static int createProgram(String fragmentShader) {
-        int vs = compile(GL20.GL_VERTEX_SHADER, VERTEX_SHADER);
-        int fs = compile(GL20.GL_FRAGMENT_SHADER, fragmentShader);
-        int p = GL20.glCreateProgram();
-        GL20.glAttachShader(p, vs);
-        GL20.glAttachShader(p, fs);
-        GL20.glLinkProgram(p);
-        GL20.glDeleteShader(vs);
-        GL20.glDeleteShader(fs);
-        if (GL20.glGetProgrami(p, GL20.GL_LINK_STATUS) == GL11.GL_FALSE) {
-            throw new IllegalStateException("Iris DLSS motion shader: " + GL20.glGetProgramInfoLog(p));
-        }
-        return p;
-    }
-
-    private static int compile(int type, String source) {
-        int shader = GL20.glCreateShader(type);
-        GL20.glShaderSource(shader, source);
-        GL20.glCompileShader(shader);
-        if (GL20.glGetShaderi(shader, GL20.GL_COMPILE_STATUS) == GL11.GL_FALSE) {
-            throw new IllegalStateException("Iris DLSS shader: " + GL20.glGetShaderInfoLog(shader));
-        }
-        return shader;
-    }
-
-    /** OpenGL state the pass touches, restored so RenderPearl's GlStateManager caches stay valid. */
-    private record GlState(int readFbo, int drawFbo, int program, int vao, int activeTexture, int texture0,
-        int sampler0, int[] viewport, boolean depthTest, boolean blend, boolean cull, boolean scissor,
-        boolean[] colorMask) {
-
-        static GlState capture() {
-            int active = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
-            GL13.glActiveTexture(GL13.GL_TEXTURE0);
-            int texture0 = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
-            int sampler0 = GL11.glGetInteger(GL33.GL_SAMPLER_BINDING);
-            int[] viewport = new int[4];
-            GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
-            boolean[] mask = new boolean[4];
-            try (MemoryStack stack = MemoryStack.stackPush()) {
-                ByteBuffer m = stack.malloc(4);
-                GL11.glGetBooleanv(GL11.GL_COLOR_WRITEMASK, m);
-                for (int i = 0; i < 4; i++) {
-                    mask[i] = m.get(i) != 0;
-                }
-            }
-            return new GlState(GL11.glGetInteger(GL30.GL_READ_FRAMEBUFFER_BINDING),
-                GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING), GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM),
-                GL11.glGetInteger(GL30.GL_VERTEX_ARRAY_BINDING), active, texture0, sampler0, viewport,
-                GL11.glIsEnabled(GL11.GL_DEPTH_TEST), GL11.glIsEnabled(GL11.GL_BLEND),
-                GL11.glIsEnabled(GL11.GL_CULL_FACE), GL11.glIsEnabled(GL11.GL_SCISSOR_TEST), mask);
-        }
-
-        void restore() {
-            GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, readFbo);
-            GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, drawFbo);
-            GL20.glUseProgram(program);
-            GL30.glBindVertexArray(vao);
-            GL13.glActiveTexture(GL13.GL_TEXTURE0);
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture0);
-            GL33.glBindSampler(0, sampler0);
-            GL13.glActiveTexture(activeTexture);
-            GL11.glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
-            set(GL11.GL_DEPTH_TEST, depthTest);
-            set(GL11.GL_BLEND, blend);
-            set(GL11.GL_CULL_FACE, cull);
-            set(GL11.GL_SCISSOR_TEST, scissor);
-            GL11.glColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
-        }
-
-        private static void set(int capability, boolean enabled) {
-            if (enabled) {
-                GL11.glEnable(capability);
-            } else {
-                GL11.glDisable(capability);
-            }
-        }
     }
 }

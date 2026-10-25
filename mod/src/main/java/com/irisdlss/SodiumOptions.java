@@ -28,7 +28,7 @@ public class SodiumOptions implements ConfigEntryPoint {
                     .addOption(builder.createBooleanOption(id("enabled"))
                         .setName(Component.literal("DLSS"))
                         .setTooltip(Component.literal("Render the world at lower resolution and upscale it with "
-                            + "NVIDIA DLSS (runs on Vulkan)."))
+                            + "NVIDIA DLSS. The game runs on Vulkan while this is on."))
                         .setImpact(OptionImpact.HIGH)
                         .setDefaultValue(true)
                         .setBinding(value -> {
@@ -73,7 +73,7 @@ public class SodiumOptions implements ConfigEntryPoint {
                     .addOption(builder.createBooleanOption(id("frame_generation"))
                         .setName(Component.literal("Frame Generation"))
                         .setTooltip(Component.literal("DLSS Frame Generation: one generated frame between two "
-                            + "rendered ones (RTX 40/50). Needs Vulkan output."))
+                            + "rendered ones (RTX 40/50). Needs the DLSS presenter."))
                         .setImpact(OptionImpact.HIGH)
                         .setDefaultValue(true)
                         .setBinding(value -> {
@@ -85,10 +85,9 @@ public class SodiumOptions implements ConfigEntryPoint {
                         }, () -> DlssConfig.frameGeneration)
                         .setStorageHandler(DlssConfig::save))
                     .addOption(builder.createBooleanOption(id("vulkan_output"))
-                        .setName(Component.literal("Vulkan output"))
-                        .setTooltip(Component.literal("Show frames through a Vulkan swapchain instead of the "
-                            + "OpenGL swap. The game's \"Graphics API\" option must stay on OpenGL for Iris "
-                            + "shaders."))
+                        .setName(Component.literal("DLSS presenter"))
+                        .setTooltip(Component.literal("Show frames through the DLSS presenter's own Vulkan swapchain "
+                            + "instead of the game's (needed for Frame Generation)."))
                         .setDefaultValue(true)
                         .setBinding(value -> {
                             DlssConfig.vulkanPresent = value;

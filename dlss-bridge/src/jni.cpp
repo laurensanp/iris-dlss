@@ -8,22 +8,59 @@
 
 #include "bridge.h"
 
+namespace {
+
+// Images come from Java as long[5 * n]: {VkImage, VkImageView, VkFormat, width, height} each.
+constexpr int kImageLongs = 5;
+
+bool readImages(JNIEnv* env, jlongArray array, IrisDlssImage* out, int count) {
+    if (array == nullptr || env->GetArrayLength(array) < count * kImageLongs) {
+        return false;
+    }
+    jlong values[kImageLongs * 4];
+    env->GetLongArrayRegion(array, 0, count * kImageLongs, values);
+    for (int i = 0; i < count; i++) {
+        const jlong* v = values + i * kImageLongs;
+        out[i] = {static_cast<uint64_t>(v[0]), static_cast<uint64_t>(v[1]), static_cast<int32_t>(v[2]),
+            static_cast<uint32_t>(v[3]), static_cast<uint32_t>(v[4])};
+    }
+    return true;
+}
+
+}  // namespace
+
 extern "C" {
 
-JNIEXPORT jint JNICALL Java_com_irisdlss_DlssNative_init(JNIEnv* env, jclass, jbyteArray uuid, jstring dataPath) {
-    jbyte uuidBytes[16] = {};
-    bool hasUuid = uuid != nullptr && env->GetArrayLength(uuid) >= 16;
-    if (hasUuid) {
-        env->GetByteArrayRegion(uuid, 0, 16, uuidBytes);
-    }
+JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_setDataPath(JNIEnv* env, jclass, jstring dataPath) {
     const jchar* path = env->GetStringChars(dataPath, nullptr);
     std::wstring widePath(reinterpret_cast<const wchar_t*>(path), env->GetStringLength(dataPath));
     env->ReleaseStringChars(dataPath, path);
-    return irisdlss_init(hasUuid ? reinterpret_cast<const uint8_t*>(uuidBytes) : nullptr, widePath.c_str());
+    irisdlss_set_data_path(widePath.c_str());
+}
+
+JNIEXPORT jint JNICALL Java_com_irisdlss_DlssNative_createInstance(JNIEnv*, jclass, jlong gipa, jlong createInfo,
+    jlong allocator, jlong outInstance) {
+    return irisdlss_create_instance(static_cast<uint64_t>(gipa), reinterpret_cast<const void*>(createInfo),
+        reinterpret_cast<const void*>(allocator), reinterpret_cast<void*>(outInstance));
+}
+
+JNIEXPORT jint JNICALL Java_com_irisdlss_DlssNative_createDevice(JNIEnv*, jclass, jlong gipa, jlong instance,
+    jlong physicalDevice, jlong createInfo, jlong allocator, jlong outDevice) {
+    return irisdlss_create_device(static_cast<uint64_t>(gipa), static_cast<uint64_t>(instance),
+        static_cast<uint64_t>(physicalDevice), reinterpret_cast<const void*>(createInfo),
+        reinterpret_cast<const void*>(allocator), reinterpret_cast<void*>(outDevice));
+}
+
+JNIEXPORT jint JNICALL Java_com_irisdlss_DlssNative_init(JNIEnv*, jclass) {
+    return irisdlss_init();
 }
 
 JNIEXPORT jstring JNICALL Java_com_irisdlss_DlssNative_message(JNIEnv* env, jclass) {
     return env->NewStringUTF(irisdlss_last_message());
+}
+
+JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_frameSubmitted(JNIEnv*, jclass) {
+    irisdlss_frame_submitted();
 }
 
 JNIEXPORT jintArray JNICALL Java_com_irisdlss_DlssNative_optimalSettings(JNIEnv* env, jclass, jint width,
@@ -40,31 +77,21 @@ JNIEXPORT jintArray JNICALL Java_com_irisdlss_DlssNative_optimalSettings(JNIEnv*
     return result;
 }
 
-// Layout: per image {handle, size, width, height}, then glDone and vkDone semaphore handles.
-JNIEXPORT jlongArray JNICALL Java_com_irisdlss_DlssNative_createResources(JNIEnv* env, jclass, jint renderWidth,
-    jint renderHeight, jint outWidth, jint outHeight, jint quality, jboolean depthInverted, jint preset) {
-    IrisDlssResources resources{};
-    if (irisdlss_create_resources(renderWidth, renderHeight, outWidth, outHeight, quality,
-            depthInverted ? 1 : 0, preset, &resources) != IRISDLSS_OK) {
-        return nullptr;
-    }
-    jlong values[IRISDLSS_IMAGE_COUNT * 4 + 2];
-    for (int i = 0; i < IRISDLSS_IMAGE_COUNT; i++) {
-        values[i * 4] = static_cast<jlong>(resources.images[i].memoryHandle);
-        values[i * 4 + 1] = static_cast<jlong>(resources.images[i].memorySize);
-        values[i * 4 + 2] = resources.images[i].width;
-        values[i * 4 + 3] = resources.images[i].height;
-    }
-    values[IRISDLSS_IMAGE_COUNT * 4] = static_cast<jlong>(resources.glDoneSemaphore);
-    values[IRISDLSS_IMAGE_COUNT * 4 + 1] = static_cast<jlong>(resources.vkDoneSemaphore);
-    jlongArray result = env->NewLongArray(IRISDLSS_IMAGE_COUNT * 4 + 2);
-    env->SetLongArrayRegion(result, 0, IRISDLSS_IMAGE_COUNT * 4 + 2, values);
-    return result;
+JNIEXPORT jint JNICALL Java_com_irisdlss_DlssNative_createResources(JNIEnv*, jclass, jlong commandBuffer,
+    jint renderWidth, jint renderHeight, jint outWidth, jint outHeight, jint quality, jboolean depthInverted,
+    jint preset) {
+    return irisdlss_create_resources(static_cast<uint64_t>(commandBuffer), renderWidth, renderHeight, outWidth,
+        outHeight, quality, depthInverted ? 1 : 0, preset);
 }
 
-JNIEXPORT jint JNICALL Java_com_irisdlss_DlssNative_evaluate(JNIEnv*, jclass, jfloat jitterX, jfloat jitterY,
-    jfloat mvScaleX, jfloat mvScaleY, jboolean reset, jfloat sharpness) {
-    return irisdlss_evaluate(jitterX, jitterY, mvScaleX, mvScaleY, reset ? 1 : 0, sharpness);
+JNIEXPORT jint JNICALL Java_com_irisdlss_DlssNative_evaluate(JNIEnv* env, jclass, jlong commandBuffer,
+    jlongArray images, jfloat jitterX, jfloat jitterY, jfloat mvScaleX, jfloat mvScaleY, jboolean reset) {
+    IrisDlssImage list[4];
+    if (!readImages(env, images, list, 4)) {
+        return IRISDLSS_DLSS_UNAVAILABLE;
+    }
+    return irisdlss_evaluate(static_cast<uint64_t>(commandBuffer), &list[0], &list[1], &list[2], &list[3], jitterX,
+        jitterY, mvScaleX, mvScaleY, reset ? 1 : 0);
 }
 
 JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_destroyResources(JNIEnv*, jclass) {
@@ -75,26 +102,9 @@ JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_shutdown(JNIEnv*, jclass) {
     irisdlss_shutdown();
 }
 
-JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_closeHandle(JNIEnv*, jclass, jlong handle) {
-    if (handle != 0) {
-        CloseHandle(reinterpret_cast<HANDLE>(handle));
-    }
-}
-
-// Layout: frame image {handle, size, width, height}, ready semaphore, consumed semaphore.
-JNIEXPORT jlongArray JNICALL Java_com_irisdlss_DlssNative_createPresenter(JNIEnv* env, jclass, jlong hwnd,
-    jint width, jint height, jboolean vsync) {
-    IrisDlssPresentResources resources{};
-    if (irisdlss_presenter_create(static_cast<uint64_t>(hwnd), width, height, vsync ? 1 : 0, 1, &resources)
-        != IRISDLSS_OK) {
-        return nullptr;
-    }
-    jlong values[6] = {static_cast<jlong>(resources.frame.memoryHandle), static_cast<jlong>(resources.frame.memorySize),
-        resources.frame.width, resources.frame.height, static_cast<jlong>(resources.readySemaphore),
-        static_cast<jlong>(resources.consumedSemaphore)};
-    jlongArray result = env->NewLongArray(6);
-    env->SetLongArrayRegion(result, 0, 6, values);
-    return result;
+JNIEXPORT jint JNICALL Java_com_irisdlss_DlssNative_createPresenter(JNIEnv*, jclass, jlong hwnd, jint width,
+    jint height, jboolean vsync) {
+    return irisdlss_presenter_create(static_cast<uint64_t>(hwnd), width, height, vsync ? 1 : 0);
 }
 
 JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_destroyPresenter(JNIEnv*, jclass) {
@@ -105,13 +115,33 @@ JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_setVsync(JNIEnv*, jclass, jb
     irisdlss_presenter_set_vsync(vsync ? 1 : 0);
 }
 
-JNIEXPORT jint JNICALL Java_com_irisdlss_DlssNative_present(JNIEnv* env, jclass, jfloatArray fgParams) {
-    if (fgParams == nullptr || env->GetArrayLength(fgParams) < IRISDLSS_FG_PARAM_COUNT) {
-        return irisdlss_present(nullptr);
+JNIEXPORT jlong JNICALL Java_com_irisdlss_DlssNative_presenterTimeline(JNIEnv*, jclass) {
+    return static_cast<jlong>(irisdlss_presenter_timeline());
+}
+
+// Returns the timeline value to signal (> 0), or -status if nothing was queued.
+JNIEXPORT jlong JNICALL Java_com_irisdlss_DlssNative_present(JNIEnv* env, jclass, jlong commandBuffer,
+    jlongArray frame, jlongArray frameGenImages, jfloatArray fgParams) {
+    IrisDlssImage frameImage;
+    if (!readImages(env, frame, &frameImage, 1)) {
+        return -IRISDLSS_DEVICE_FAILED;
     }
+    IrisDlssImage fgImages[3];
+    bool hasFgImages = readImages(env, frameGenImages, fgImages, 3);
     float params[IRISDLSS_FG_PARAM_COUNT];
-    env->GetFloatArrayRegion(fgParams, 0, IRISDLSS_FG_PARAM_COUNT, params);
-    return irisdlss_present(params);
+    bool hasParams = fgParams != nullptr && env->GetArrayLength(fgParams) >= IRISDLSS_FG_PARAM_COUNT;
+    if (hasParams) {
+        env->GetFloatArrayRegion(fgParams, 0, IRISDLSS_FG_PARAM_COUNT, params);
+    }
+    uint64_t value = 0;
+    int32_t status = irisdlss_present(static_cast<uint64_t>(commandBuffer), &frameImage,
+        hasFgImages ? &fgImages[0] : nullptr, hasFgImages ? &fgImages[1] : nullptr,
+        hasFgImages ? &fgImages[2] : nullptr, hasFgImages && hasParams ? params : nullptr, &value);
+    if (value == 0) {
+        return -(status == IRISDLSS_OK ? IRISDLSS_DEVICE_FAILED : status);
+    }
+    // A failed frame generation still queued the real frame; the caller reads message() for why.
+    return status == IRISDLSS_OK ? static_cast<jlong>(value) : static_cast<jlong>(value) | (1ll << 62);
 }
 
 JNIEXPORT jfloatArray JNICALL Java_com_irisdlss_DlssNative_presenterStats(JNIEnv* env, jclass) {
