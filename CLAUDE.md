@@ -54,8 +54,12 @@ M1 in progress, in the fork:
   without one, the original shaders writing colortex0. `VulkanTransformer` gives gbuffers programs
   vanilla's/Sodium's binding names (DynamicTransforms, Sampler0, u_BlockTex...). Reverse-Z is no issue:
   this Iris inverts depth in the shader transform (`DepthTransformer`), the `UndoReverseZ*` mixins are off.
-  Next: check entities, block entities, clouds, weather, water with a real pack (Solas); Iris' synthesized
-  fallback programs (missing pack programs) still draw with the original shaders on Vulkan.
+  **Verified with Solas 3.8** (all gbuffers programs compile): terrain, water, sky + clouds, entities,
+  block entities, held items, hand, night sky and rain render with Solas; ~62 fps rendered in the 854x480
+  window (RTX 4060 Ti, DLSS SR + FG). Not done: no shadows (shadow pass skipped until M3), Iris' synthesized
+  fallback programs (pack lacks a program) draw with the original shaders, per-draw uniform upload not
+  optimized. Test options: `-PtestCommands="time set 18000;weather rain;summon pig ^ ^ ^3"` (run after
+  joining), `-PtestPitch=40` (camera pitch, negative looks up).
 * Known gaps: shadow pass (skipped on Vulkan), geometry/tessellation shaders, compute, images, colour
   space conversion, horizon box, uniform default values (`uniform float x = 1.0;` starts at 0).
   Grep the log for `Not supported on Vulkan yet` and `ignored GlStateManager.` to see what a pack hits.
