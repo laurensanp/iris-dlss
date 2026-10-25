@@ -141,8 +141,13 @@ Rules:
 * Benchmark: `-PtestWorld=vulkan-test -PdlssBenchmark -PwindowSize=1920x1080` (fork) cycles SR+FG, SR Quality,
   SR Performance, DLAA, off through `DlssConfig` (`DlssBenchmark`, not the settings UI, config file not written)
   and logs `Iris DLSS benchmark:` lines with rendered/shown fps. Solas, 1080p, static view, 4060 Ti (2026-10-25):
-  SR+FG 92 rendered/180 shown, SR Quality 142, SR Performance 145, DLAA 80, off 104. Quality ~ Performance:
-  CPU-bound (per-draw uniform upload in the Vulkan port), so a lower render scale gains nothing there.
+  SR+FG 92 rendered/180 shown, SR Quality 142, SR Performance 145, DLAA 80, off 104.
+  Not CPU-bound (JFR, 2026-10-26): the render thread mostly waits in RenderPearl's `submit` for the frame
+  before last (GPU-bound) and in the presenter's `frameStart`. DLSS SR preset K itself costs ~2 ms at
+  1080p on the 4060 Ti (DLAA vs off), FG ~3 ms per rendered frame; render distance 32 -> 12 lifts
+  Performance from 145 to 170. Preset E (CNN, added as an option) is ~1 ms cheaper than K. Run the
+  benchmark with nothing else loading the PC (numbers swing ~25 % between runs otherwise).
+  Logs written across midnight get lost (log roll), rerun then.
 * `-PdlssDebug=spin|walk` turns on this mod's capture/motion debugging; its frame captures only fire when
   Frame Generation runs.
 

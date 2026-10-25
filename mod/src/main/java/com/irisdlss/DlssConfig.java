@@ -33,6 +33,7 @@ public final class DlssConfig {
     public enum Preset {
         K(11, "K (Transformer, best)", "k"),
         J(10, "J (Transformer, less ghosting)", "j"),
+        E(5, "E (CNN, fastest)", "e"),
         DEFAULT(0, "Driver default", "default");
 
         public final int ngx;
