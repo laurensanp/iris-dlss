@@ -70,6 +70,14 @@ M1 in progress, in the fork:
   that tp gives the beach view used for GL/Vulkan comparisons), `-PtestPitch=40` (negative looks up).
   OpenGL reference shot: `enabled=false` in `config/iris-dlss.properties` + `preferredGraphicsBackend:"opengl"`
   in `options.txt`, then restore both. `VulkanTestPost` pack: composite/final only, no gbuffers.
+* **Complementary Reimagined r5.9.3 runs** on Vulkan (2026-10-25): needed the fallback texture created
+  outside render passes, a Vulkan PBR sampler, and `tex` mapped to the albedo binding (`VulkanTransformer`).
+* Lunar Client: its "Multi-Threaded Rendering" acquires/presents the swapchain itself (mixins on
+  `FrontendGpuSurface.acquireNextTexture` / `VulkanGpuSurface.present`), so the DLSS presenter (and FG)
+  can't run; the mod detects it, keeps the game's output and says so in the status line. The user plays
+  in Lunar (`~/.lunarclient/profiles/surv`). Presenting from both swapchains stalls in fullscreen.
+  Dev tests: `fullscreen:false` in `fabric/run/options.txt`, else a focus change minimizes the
+  window and Minecraft caps it at 10 fps (looks like a presenter stall).
 * Known gaps (M3): shadow pass (skipped on Vulkan), geometry/tessellation shaders, compute, images, colour
   space conversion.
   Grep the log for `Not supported on Vulkan yet` and `ignored GlStateManager.` to see what a pack hits.
