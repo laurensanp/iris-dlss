@@ -17,7 +17,7 @@ Two codebases, side by side:
 
 Goal in the end: Iris shader packs (Solas, Complementary) + Voxy LODs + DLSS SR/FG, all on Vulkan.
 
-## Status (2026-10-25)
+## Status (2026-10-26)
 
 Milestones from `docs/vulkan-port.md`: M1 composite/final on Vulkan, M2 gbuffers, M3 shadows/compute/
 rest, M4 Voxy (own renderer; Voxy is All-Rights-Reserved, don't modify or ship its code).
@@ -84,6 +84,14 @@ M1 in progress, in the fork:
   in Lunar (`~/.lunarclient/profiles/surv`). Presenting from both swapchains stalls in fullscreen.
   Dev tests: `fullscreen:false` in `fabric/run/options.txt`, else a focus change minimizes the
   window and Minecraft caps it at 10 fps (looks like a presenter stall).
+* Installing into Lunar (`~/.lunarclient/profiles/surv`, only while its game isn't running; check with
+  the java processes, the launcher may stay open): fork `gradlew :fabric:build` -> `build/libs/iris-fabric-*.jar`
+  (repo root, not `fabric/build`), copied over `mods/iris-fabric-vulkan+mc26.3.jar`; `mod/build/libs/iris-dlss-*.jar`
+  over `mods/iris-dlss-0.4.0+mc26.3.jar` (same names, no duplicates). Back up the old jars first
+  (`mods-backup-<date>/`). Last install 2026-10-26 (everything up to the settings UI). Lunar's Sodium is
+  0.9.3-beta.1 (dev: 0.9.2), it also has ImmediatelyFast, entityculling, dynamic-fps, Xaero's maps.
+  The user's Solas settings live in `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap
+  tweaks, shadowMapResolution 4096) and compile on Vulkan; shadow/voxel/floodfill options wait for M3.
 * Known gaps (M3): shadow pass (skipped on Vulkan), geometry/tessellation shaders, compute, images, colour
   space conversion.
   Grep the log for `Not supported on Vulkan yet` and `ignored GlStateManager.` to see what a pack hits.
