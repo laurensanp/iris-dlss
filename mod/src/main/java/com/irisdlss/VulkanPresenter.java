@@ -30,6 +30,9 @@ public final class VulkanPresenter {
     /** Dev option -Diris-dlss.captureAt=N: capture frames after N frame-generated presents. */
     private static final int CAPTURE_AT = Integer.getInteger("iris-dlss.captureAt", -1);
     private static int frameGeneratedPresents;
+    /** Another mod or client acquires the swapchain images itself (see foreignSwapchain). */
+    private static boolean foreignSwapchain;
+    private static int foreignFrames;
 
     private VulkanPresenter() {
     }
@@ -118,6 +121,30 @@ public final class VulkanPresenter {
         return true;
     }
 
+    /**
+     * The game's swapchain image was acquired outside the game's surface code: something else (Lunar
+     * Client's Multi-Threaded Rendering) acquires and presents, so the presenter can't take over.
+     * Showing frames from both at once stalls in fullscreen, so the game keeps its output.
+     */
+    public static void foreignSwapchain() {
+        // One frame can be acquired before DLSS was ready; only frames in a row count.
+        if (!foreignSwapchain && ++foreignFrames >= 3) {
+            foreignSwapchain = true;
+            IrisDlss.LOGGER.warn("Iris DLSS: the game's swapchain is driven by another mod or client (Lunar Client: "
+                + "Multi-Threaded Rendering), so frames stay on the game's swapchain and Frame Generation is off. "
+                + "Turn that option off to use the DLSS presenter.");
+        }
+    }
+
+    /** The game's own surface code acquired this frame again (the other mod's option was turned off). */
+    public static void ownSwapchain() {
+        foreignFrames = 0;
+        if (foreignSwapchain) {
+            foreignSwapchain = false;
+            IrisDlss.LOGGER.info("Iris DLSS: the game's swapchain is free again, starting the presenter");
+        }
+    }
+
     private static boolean start(long sdlWindow, int w, int h) {
         stop();
         long hwnd = SDLProperties.SDL_GetPointerProperty(SDLVideo.SDL_GetWindowProperties(sdlWindow),
@@ -183,6 +210,13 @@ public final class VulkanPresenter {
         }
         if (failed) {
             return "Output: game swapchain (presenter failed: " + failureReason + ")";
+        }
+        if (foreignSwapchain) {
+            return "Output: game swapchain (Lunar Client's Multi-Threaded Rendering has the swapchain: turn it off "
+                + "for Frame Generation)";
+        }
+        if (!DlssUpscaler.isActive()) {
+            return "Output: game swapchain (DLSS off)";
         }
         if (!running) {
             return "Output: presenter (starting)";

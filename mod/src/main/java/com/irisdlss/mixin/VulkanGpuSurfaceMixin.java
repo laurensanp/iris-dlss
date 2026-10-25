@@ -29,6 +29,10 @@ public abstract class VulkanGpuSurfaceMixin {
     @Shadow
     public abstract void acquireNextTexture() throws SurfaceException;
 
+    /** Dev option -Diris-dlss.debugForeignAcquire=true: behave as if another mod acquired the image (Lunar Client). */
+    @Unique
+    private static final boolean IRISDLSS_FOREIGN_ACQUIRE = Boolean.getBoolean("iris-dlss.debugForeignAcquire");
+
     @Unique
     private long irisdlss$window;
     @Unique
@@ -50,7 +54,7 @@ public abstract class VulkanGpuSurfaceMixin {
 
     @Inject(method = "acquireNextTexture", at = @At("HEAD"), cancellable = true)
     private void irisdlss$acquire(CallbackInfo ci) {
-        if (!this.irisdlss$forceAcquire && VulkanPresenter.wanted()) {
+        if (!this.irisdlss$forceAcquire && !IRISDLSS_FOREIGN_ACQUIRE && VulkanPresenter.wanted()) {
             this.irisdlss$skippedAcquire = true;
             ci.cancel();
         }
@@ -59,11 +63,17 @@ public abstract class VulkanGpuSurfaceMixin {
     @Inject(method = "blitFromTexture", at = @At("HEAD"), cancellable = true)
     private void irisdlss$present(CommandEncoderBackend commandEncoder, GpuTextureView textureView, CallbackInfo ci) {
         if (!this.irisdlss$skippedAcquire) {
+            if (VulkanPresenter.wanted()) {
+                // Something else acquired the image without acquireNextTexture (Lunar Client's
+                // Multi-Threaded Rendering acquires and presents on its own threads).
+                VulkanPresenter.foreignSwapchain();
+            }
             // The game presents this frame itself: the child window must not cover it.
             VulkanPresenter.stop();
             return;
         }
         this.irisdlss$skippedAcquire = false;
+        VulkanPresenter.ownSwapchain();
         if (VulkanPresenter.present(this.irisdlss$window, textureView)) {
             this.irisdlss$skipPresent = true;
             ci.cancel();
