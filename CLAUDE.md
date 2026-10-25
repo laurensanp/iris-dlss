@@ -80,7 +80,10 @@ M1 in progress, in the fork:
   (`colortex5` undeclared with SSAO=false); keep it false otherwise.
 * Lunar Client: its "Multi-Threaded Rendering" acquires/presents the swapchain itself (mixins on
   `FrontendGpuSurface.acquireNextTexture` / `VulkanGpuSurface.present`), so the DLSS presenter (and FG)
-  can't run; the mod detects it, keeps the game's output and says so in the status line. The user plays
+  can't run; the mod detects it, keeps the game's output and says so in the status line.
+  Its setting is `decoupledPresent` in `~/.lunarclient/settings/game/<profile>/performance.json`
+  (`{"version":38,"decoupledPresent":false}` turns it off; edit only while Lunar's game is closed, it
+  writes the file back). Detection verified in real Lunar 2026-10-26. The user plays
   in Lunar (`~/.lunarclient/profiles/surv`). Presenting from both swapchains stalls in fullscreen.
   Dev tests: `fullscreen:false` in `fabric/run/options.txt`, else a focus change minimizes the
   window and Minecraft caps it at 10 fps (looks like a presenter stall).
