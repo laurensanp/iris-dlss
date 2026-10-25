@@ -47,7 +47,8 @@ public class SodiumOptions implements ConfigEntryPoint {
                         .setStorageHandler(DlssConfig::save))
                     .addOption(builder.createEnumOption(id("preset"), DlssConfig.Preset.class)
                         .setName(Component.literal("Model"))
-                        .setTooltip(Component.literal("K: transformer model, best detail. J: less ghosting. E: older CNN model, "
+                        .setTooltip(Component.literal("K: transformer model, best detail. L: second-generation transformer (NVIDIA's default for "
+                            + "Ultra Performance). J: less ghosting. E: older CNN model, "
                             + "noticeably cheaper on the GPU (more fps), a bit softer."))
                         .setDefaultValue(DlssConfig.Preset.K)
                         .setElementNameProvider(p -> Component.literal(p.label))

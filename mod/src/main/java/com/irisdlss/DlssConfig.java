@@ -32,6 +32,7 @@ public final class DlssConfig {
     /** NVSDK_NGX_DLSS_Hint_Render_Preset. */
     public enum Preset {
         K(11, "K (Transformer, best)", "k"),
+        L(12, "L (Transformer 2)", "l"),
         J(10, "J (Transformer, less ghosting)", "j"),
         E(5, "E (CNN, fastest)", "e"),
         DEFAULT(0, "Driver default", "default");
@@ -133,7 +134,7 @@ public final class DlssConfig {
             writer.write("enabled=" + enabled + "\n");
             writer.write("# dlaa | quality | balanced | performance | ultra_performance\n");
             writer.write("quality=" + quality.key + "\n");
-            writer.write("# k | j | default\n");
+            writer.write("# k | l | j | e | default\n");
             writer.write("preset=" + preset.key + "\n");
             writer.write("textureLodBias=" + textureLodBias + "\n");
             writer.write("handDistance=" + handDistance + "\n");
