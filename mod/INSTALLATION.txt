@@ -1,40 +1,38 @@
-Iris DLSS Bridge 0.3.0 - NVIDIA DLSS + Frame Generation fuer Minecraft 26.3 (Fabric)
-=====================================================================================
-
-Installation
-  1. Alte iris-dlss-*.jar aus dem mods-Ordner loeschen.
-  2. iris-dlss-0.3.0+mc26.3.jar in den mods-Ordner ziehen. Fertig.
-  (Funktioniert auch in Lunar-Client-Profilen mit Fabric. Das Spiel muss dafuer geschlossen sein.)
+Iris DLSS Bridge 0.5.0 - NVIDIA DLSS + Frame Generation fuer Minecraft 26.3 (Fabric, Vulkan)
+=========================================================================================
+Ausfuehrlich (englisch): https://github.com/laurensanp/iris-dlss#readme
 
 Voraussetzungen
-  - NVIDIA RTX-Grafikkarte (Frame Generation: RTX 40 / 50), aktueller Treiber
+  - Windows 10/11, NVIDIA RTX-Grafikkarte, aktueller Treiber
+    (Frame Generation nur RTX 40 / 50)
   - Minecraft 26.3 mit Fabric Loader 0.20.1+
-  - Optional: Sodium + Iris (Shader) und Voxy, werden unterstuetzt
-  - NICHT zusammen mit GGTU / ResolutionScaler verwenden
+  - Sodium 0.9.2+ fuer 26.3 (fuer Shader noetig)
+  - NICHT zusammen mit GGTU / ResolutionScaler oder normalem Iris
 
-Was die Mod macht
-  - Die Welt wird in niedrigerer Aufloesung gerendert, DLSS (Vulkan) rechnet sie hoch.
-  - Das fertige Bild geht ueber eine Vulkan-Swapchain auf den Bildschirm (nicht mehr OpenGL).
-  - Frame Generation (DLSS-G) erzeugt zwischen zwei echten Bildern ein zusaetzliches Bild.
-  - Das eigene TAA des Shaderpacks wird beim Start automatisch ausgeschaltet
-    (doppeltes TAA macht das Bild unscharf).
+Installation (Spiel geschlossen)
+  1. Von https://github.com/laurensanp/iris-dlss/releases herunterladen:
+       iris-dlss-0.5.0+mc26.3.jar
+       iris-fabric-vulkan+mc26.3.jar   (Iris fuer Vulkan, nur fuer Shaderpacks)
+  2. Beide Jars + Sodium in den mods-Ordner. Altes iris-dlss-*.jar und normales Iris entfernen.
+  3. Shaderpack (z.B. Solas) in den shaderpacks-Ordner, im Spiel unter Videoeinstellungen auswaehlen.
 
-Einstellungen im Spiel
-  Optionen > Grafik > Knopf "DLSS..." oben rechts (oder Mod Menu > Iris DLSS Bridge)
-    DLSS              an / aus
-    Quality           DLAA (am schaerfsten, native Aufloesung), Quality, Balanced,
-                      Performance, Ultra Performance
-    Model             K (Transformer, beste Qualitaet), J, Treiber-Standard
-    Texture LOD bias  schaerfere Texturen bei niedriger Renderaufloesung
-    Frame Generation  an / aus (braucht "Vulkan output")
-    Vulkan output     Bild ueber Vulkan statt OpenGL ausgeben
-    Sharpening        Nachschaerfen nach DLSS, 0-100 %
-  Aenderungen wirken sofort. VSync kommt aus den normalen Grafikeinstellungen.
+Lunar Client
+  "Multi-Threaded Rendering" in den Lunar-Einstellungen AUSSCHALTEN, sonst laeuft keine
+  Frame Generation. Alternativ bei geschlossenem Spiel in
+  %USERPROFILE%\.lunarclient\settings\game\<Profil>\performance.json  "decoupledPresent":false setzen.
 
-Tipp fuer ein Bild wie ohne DLSS
-  Quality "DLAA" + Frame Generation an: native Schaerfe, trotzdem doppelte Bildrate.
+Einstellungen
+  Videoeinstellungen > DLSS (Seiten "Settings" und "Advanced") oder Mod Menu.
+    Mode              DLAA, Quality, Balanced, Performance, Ultra Performance, Custom (eigene Aufloesung)
+    Model             K (Standard), L, M, J, E (am schnellsten)
+    Frame Generation  braucht den "DLSS presenter"
+    Overlay           FPS-Anzeige oben links
+  Aenderungen wirken sofort.
+
+Shaderpacks auf Vulkan
+  Laufen: Solas 3.8, Complementary Reimagined/Unbound, BSL, MakeUp Ultra Fast.
+  Noch ohne Schatten (kommt spaeter). Photon, Bliss, Sildur's laufen noch nicht.
 
 Kontrolle
-  F3 zeigt unter "OpenGL ..." zwei Zeilen:
-    "Vulkan DLSS SR ..."              Hochskalierung
-    "Output: Vulkan swapchain ..."    Ausgabe, angezeigte FPS und "Frame Generation x2"
+  F3 zeigt zwei DLSS-Zeilen (Aufloesung, angezeigte/gerenderte FPS, Frame Generation x2).
+  Probleme: logs/latest.log, nach "Iris DLSS" suchen.

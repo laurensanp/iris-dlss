@@ -5,8 +5,12 @@
   "name": "Iris DLSS Bridge",
   "description": "NVIDIA DLSS Super Resolution and Frame Generation for Minecraft 26.3, running inside the game's Vulkan renderer (no OpenGL). Settings: Video Settings > DLSS or Mod Menu.",
   "authors": [
-    "you"
+    "laurensanp"
   ],
+  "contact": {
+    "sources": "https://github.com/laurensanp/iris-dlss",
+    "issues": "https://github.com/laurensanp/iris-dlss/issues"
+  },
   "license": "MIT",
   "environment": "client",
   "entrypoints": {
