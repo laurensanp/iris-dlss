@@ -4,7 +4,7 @@ Two codebases, side by side:
 
 * **this repo** (`iris-dlss`, github.com/laurensanp/iris-dlss): Fabric mod for Minecraft 26.3 that runs
   DLSS Super Resolution + Frame Generation inside the game's own Vulkan renderer (RenderPearl).
-  Done and working (0.4.0). See `README.md`.
+  Done and working (0.5.0, released). See `README.md`.
 * **the Iris fork** (github.com/laurensanp/iris-vulkan, cloned next to this repo as `../iris-vulkan`;
   upstream github.com/IrisShaders/Iris branch `26.3`): porting Iris shader packs to Vulkan so they run
   together with DLSS. Plan and milestones are in `docs/vulkan-port.md`. **Read that first.**
@@ -87,6 +87,14 @@ M1 in progress, in the fork:
   in Lunar (`~/.lunarclient/profiles/surv`). Presenting from both swapchains stalls in fullscreen.
   Dev tests: `fullscreen:false` in `fabric/run/options.txt`, else a focus change minimizes the
   window and Minecraft caps it at 10 fps (looks like a presenter stall).
+* Releases (public, 2026-10-26): iris-dlss `v0.5.0` (`iris-dlss-0.5.0+mc26.3.jar`) and iris-vulkan
+  `vulkan-v0.1.0` (the fork jar renamed to `iris-fabric-vulkan+mc26.3.jar`), both pre-releases, made with
+  `"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jar> -R laurensanp/<repo> --prerelease`
+  (gh is logged in as laurensanp). Next release: bump `version` in `mod/build.gradle`, update the README
+  pack table / "New in" notes, rebuild both jars, keep the asset names. iris-dlss is MIT (`LICENSE`); the
+  `iris-vulkan` gitlink is a real submodule now (`.gitmodules`, branch `vulkan-m2`): after pushing the
+  fork, point it at the new commit (`git update-index --cacheinfo 160000,<sha>,iris-vulkan`). The local
+  `iris-dlss/iris-vulkan` folder is a stale plain copy, keep working in `../iris-vulkan`.
 * Installing into Lunar (`~/.lunarclient/profiles/surv`, only while its game isn't running; check with
   the java processes, the launcher may stay open): fork `gradlew :fabric:build` -> `build/libs/iris-fabric-*.jar`
   (repo root, not `fabric/build`), copied over `mods/iris-fabric-vulkan+mc26.3.jar`; `mod/build/libs/iris-dlss-*.jar`
