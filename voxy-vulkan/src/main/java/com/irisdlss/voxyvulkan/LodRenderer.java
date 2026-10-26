@@ -154,6 +154,7 @@ public final class LodRenderer {
         if (failed || inIrisShadowPass()) {
             return;
         }
+        IrisLods.data();
         VoxyConfig config = VoxyConfig.CONFIG;
         Minecraft minecraft = Minecraft.getInstance();
         ClientLevel level = minecraft.level;
