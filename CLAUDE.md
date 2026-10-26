@@ -211,6 +211,10 @@ method` in the Gradle output instead.
   Dev `options.txt` has `inactivityFpsLimit:"minimized"`, else the AFK limit (30 fps) hits long benchmarks. Run the
   benchmark with nothing else loading the PC (numbers swing ~25 % between runs otherwise).
   Logs written across midnight get lost (log roll), rerun then.
+- Multi frame generation (2026-10-26): setting "Generated frames" 2x/3x/4x (`frameGenMultiplier`), values
+  limited to the GPU's `DLSSG.MultiFrameCountMax` (`irisdlss_frame_generation_max`, 4060 Ti: 2x only, option
+  greyed out). One DLSS-G evaluate per generated frame (`multiFrameCount`/`multiFrameIndex`; the SDK struct
+  defaults are 1/1, 0 fails with InvalidParameter). 3x/4x untested (needs RTX 50).
 - `-PdlssDebug=spin|walk` turns on this mod's capture/motion debugging; its frame captures only fire when
   Frame Generation runs.
 

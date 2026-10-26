@@ -70,6 +70,38 @@ public final class DlssConfig {
         }
     }
 
+    /** Frame Generation multiplier: frames shown per rendered frame. 3x and 4x are DLSS 4 multi frame generation. */
+    public enum FrameGenMode {
+        X2(2, "2x", "2"),
+        X3(3, "3x (RTX 50)", "3"),
+        X4(4, "4x (RTX 50)", "4");
+
+        public final int factor;
+        public final String label;
+        public final String key;
+
+        FrameGenMode(int factor, String label, String key) {
+            this.factor = factor;
+            this.label = label;
+            this.key = key;
+        }
+
+        /**
+         * The modes the GPU supports. Before DLSS started in a world the GPU's maximum is unknown: then 2x
+         * and the configured mode.
+         */
+        public static java.util.Set<FrameGenMode> supported() {
+            int max = DlssUpscaler.frameGenerationMax();
+            java.util.Set<FrameGenMode> modes = java.util.EnumSet.of(X2);
+            for (FrameGenMode mode : values()) {
+                if (max < 0 ? mode == frameGenMode : mode.factor <= max) {
+                    modes.add(mode);
+                }
+            }
+            return modes;
+        }
+    }
+
     /** Signs applied to the jitter reported to DLSS (diagnostic). */
     public enum JitterDirection {
         NORMAL("Normal", 1.0F, 1.0F),
@@ -116,6 +148,8 @@ public final class DlssConfig {
     public static boolean vulkanPresent = true;
     /** DLSS Frame Generation: one generated frame between two rendered ones. */
     public static boolean frameGeneration = true;
+    /** Frames shown per rendered frame with Frame Generation; the presenter clamps it to what the GPU supports. */
+    public static FrameGenMode frameGenMode = FrameGenMode.X2;
     /** Contrast-adaptive sharpening after DLSS, 0..1. */
     public static float sharpness = 0.35F;
     /** Render resolution in percent for {@link Quality#CUSTOM}. */
@@ -163,6 +197,7 @@ public final class DlssConfig {
         jitterSignY = parseFloat(p.getProperty("jitterSignY"), 1.0F);
         vulkanPresent = Boolean.parseBoolean(p.getProperty("vulkanPresent", "true"));
         frameGeneration = Boolean.parseBoolean(p.getProperty("frameGeneration", "true"));
+        frameGenMode = parse(FrameGenMode.values(), p.getProperty("frameGenMultiplier"), FrameGenMode.X2);
         sharpness = Math.max(0.0F, Math.min(1.0F, parseFloat(p.getProperty("sharpness"), 0.35F)));
         renderScale = Math.max(33, Math.min(100, Math.round(parseFloat(p.getProperty("renderScale"), 67.0F))));
         disablePackTaa = Boolean.parseBoolean(p.getProperty("disablePackTaa", "true"));
@@ -187,6 +222,8 @@ public final class DlssConfig {
             writer.write("jitterSignY=" + jitterSignY + "\n");
             writer.write("vulkanPresent=" + vulkanPresent + "\n");
             writer.write("frameGeneration=" + frameGeneration + "\n");
+            writer.write("# 2 | 3 | 4 (3 and 4 need an RTX 50 card)\n");
+            writer.write("frameGenMultiplier=" + frameGenMode.key + "\n");
             writer.write("sharpness=" + sharpness + "\n");
             writer.write("renderScale=" + renderScale + "\n");
             writer.write("disablePackTaa=" + disablePackTaa + "\n");
@@ -204,7 +241,7 @@ public final class DlssConfig {
         }
         for (E e : values) {
             String key = e instanceof Quality q ? q.key : e instanceof Preset p ? p.key
-                : e instanceof Overlay o ? o.key : e.name();
+                : e instanceof Overlay o ? o.key : e instanceof FrameGenMode f ? f.key : e.name();
             if (key.equalsIgnoreCase(value.trim())) {
                 return e;
             }

@@ -88,6 +88,7 @@ public final class VulkanPresenter {
         long[] fgImages = null;
         float[] fg = null;
         if (DlssConfig.frameGeneration) {
+            DlssNative.setGeneratedFrames(DlssConfig.frameGenMode.factor - 1);
             fg = DlssUpscaler.takeFrameGenParams();
             fgImages = fg != null ? DlssUpscaler.frameGenImages() : null;
         }
@@ -222,7 +223,7 @@ public final class VulkanPresenter {
             return "Presenter starting";
         }
         refreshStats();
-        String fg = !DlssConfig.frameGeneration ? "FG off" : stats[1] > 0 ? "FG x2" : "FG idle";
+        String fg = !DlssConfig.frameGeneration ? "FG off" : stats[1] > 0 ? "FG x" + Math.round(stats[1]) : "FG idle";
         return String.format("Presenter: %.0f fps (%.0f rendered), %s, latency %.0f ms", stats[0], stats[3], fg,
             stats[7]);
     }
@@ -246,7 +247,7 @@ public final class VulkanPresenter {
         }
         refreshStats();
         String fg = !DlssConfig.frameGeneration ? "Frame Generation off"
-            : stats[1] > 0 ? "Frame Generation x2" : "Frame Generation idle";
+            : stats[1] > 0 ? "Frame Generation x" + Math.round(stats[1]) : "Frame Generation idle";
         return String.format("Output: presenter %s, %.0f fps shown (%.0f rendered), %s, pacing %.1f±%.1f ms "
             + "(worst %.1f), latency %.1f ms", vsync ? "VSync" : "no VSync", stats[0], stats[3], fg, stats[4], stats[5],
             stats[6], stats[7]);

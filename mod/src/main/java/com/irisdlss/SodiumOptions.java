@@ -17,6 +17,7 @@ public class SodiumOptions implements ConfigEntryPoint {
     private static final Identifier ENABLED = id("enabled");
     private static final Identifier QUALITY = id("quality");
     private static final Identifier PRESENTER = id("vulkan_output");
+    private static final Identifier FRAME_GENERATION = id("frame_generation");
 
     private static Identifier id(String path) {
         return Identifier.fromNamespaceAndPath("iris-dlss", path);
@@ -96,7 +97,7 @@ public class SodiumOptions implements ConfigEntryPoint {
                         .setStorageHandler(DlssConfig::save)))
                 .addOptionGroup(builder.createOptionGroup()
                     .setName(text("Frame Generation"))
-                    .addOption(builder.createBooleanOption(id("frame_generation"))
+                    .addOption(builder.createBooleanOption(FRAME_GENERATION)
                         .setName(text("Frame Generation"))
                         .setTooltip(text("DLSS Frame Generation: one generated frame between two rendered ones, "
                             + "about twice the fps shown, slightly more latency. RTX 40/50 only. Needs the DLSS "
@@ -109,6 +110,18 @@ public class SodiumOptions implements ConfigEntryPoint {
                             DlssConfig.frameGeneration = value;
                             VulkanPresenter.retry();
                         }, () -> DlssConfig.frameGeneration)
+                        .setStorageHandler(DlssConfig::save))
+                    .addOption(builder.createEnumOption(id("frame_gen_multiplier"), DlssConfig.FrameGenMode.class)
+                        .setName(text("Generated frames"))
+                        .setTooltip(SodiumOptions::frameGenTooltip)
+                        .setImpact(OptionImpact.HIGH)
+                        .setDefaultValue(DlssConfig.FrameGenMode.X2)
+                        .setAllowedValuesProvider(state -> DlssConfig.FrameGenMode.supported(), ENABLED)
+                        .setEnabledProvider(state -> dlssOn(state) && state.readBooleanOption(PRESENTER)
+                            && state.readBooleanOption(FRAME_GENERATION)
+                            && DlssConfig.FrameGenMode.supported().size() > 1, ENABLED, PRESENTER, FRAME_GENERATION)
+                        .setElementNameProvider(m -> text(m.label))
+                        .setBinding(value -> DlssConfig.frameGenMode = value, () -> DlssConfig.frameGenMode)
                         .setStorageHandler(DlssConfig::save))
                     .addOption(builder.createBooleanOption(PRESENTER)
                         .setName(text("DLSS presenter"))
@@ -185,6 +198,17 @@ public class SodiumOptions implements ConfigEntryPoint {
             case ULTRA_PERFORMANCE -> "Ultra Performance: 33 % render resolution, for very high output resolutions.";
             case CUSTOM -> "Custom: set the render resolution yourself (slider below).";
         });
+    }
+
+    static Component frameGenTooltip(DlssConfig.FrameGenMode mode) {
+        String text = switch (mode) {
+            case X2 -> "2x: one generated frame per rendered one (RTX 40/50).";
+            case X3 -> "3x: two generated frames per rendered one (DLSS 4 multi frame generation, RTX 50).";
+            case X4 -> "4x: three generated frames per rendered one (DLSS 4 multi frame generation, RTX 50).";
+        };
+        int max = DlssUpscaler.frameGenerationMax();
+        return text(text + (max < 0 ? " Which modes this GPU supports shows once DLSS ran in a world."
+            : max < 3 ? " This GPU supports 2x only." : ""));
     }
 
     static Component presetTooltip(DlssConfig.Preset preset) {

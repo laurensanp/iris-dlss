@@ -50,6 +50,12 @@ public final class DlssNative {
 
     public static native void setVsync(boolean vsync);
 
+    /** Highest Frame Generation multiplier of the GPU after init(): 0 = none, 2, or 3/4 (RTX 50). */
+    public static native int frameGenerationMax();
+
+    /** Generated frames per rendered frame (1 = 2x ... 3 = 4x), clamped to what the GPU supports. */
+    public static native void setGeneratedFrames(int count);
+
     /** Start of the game's frame (before input): low-latency wait for the presenter. */
     public static native void frameStart();
 
@@ -66,6 +72,6 @@ public final class DlssNative {
     /** Debug: PNGs of the generated and real frame of the next `frames` frame-generated presents. */
     public static native void debugCapture(int frames, String dir);
 
-    /** {shown fps, frame generation ran (0/1), thread error (0/1), rendered fps, mean / stddev / worst ms between shown frames, latency ms}. */
+    /** {shown fps, frame generation multiplier in the last second (0 = did not run), thread error (0/1), rendered fps, mean / stddev / worst ms between shown frames, latency ms}. */
     public static native float[] presenterStats();
 }

@@ -184,6 +184,8 @@ public final class DlssUpscaler {
 
     private static boolean initialized;
     private static boolean failed;
+    /** Highest Frame Generation multiplier of the GPU (0 = none), -1 until DLSS started. */
+    private static int frameGenerationMax = -1;
 
     private static int renderWidth;
     private static int renderHeight;
@@ -246,6 +248,11 @@ public final class DlssUpscaler {
             builder.withColorTargetState(i, targets[i]);
         }
         return builder.build();
+    }
+
+    /** Highest Frame Generation multiplier of the GPU: 0 = none, 2, 3 or 4; -1 until DLSS started in a world. */
+    public static int frameGenerationMax() {
+        return frameGenerationMax;
     }
 
     public static boolean isActive() {
@@ -342,6 +349,11 @@ public final class DlssUpscaler {
                 return false;
             }
             IrisDlss.LOGGER.info("Iris DLSS: {}", DlssNative.message());
+            frameGenerationMax = DlssNative.frameGenerationMax();
+            if (DlssConfig.frameGenMode.factor > Math.max(2, frameGenerationMax)) {
+                // A mode this GPU does not offer (config from an RTX 50 machine): show and use the highest it has.
+                DlssConfig.frameGenMode = frameGenerationMax >= 3 ? DlssConfig.FrameGenMode.X3 : DlssConfig.FrameGenMode.X2;
+            }
             motionPipeline = compile(MOTION_PIPELINE);
             sharpenPipeline = compile(SHARPEN_PIPELINE);
             if (motionPipeline == null || sharpenPipeline == null) {

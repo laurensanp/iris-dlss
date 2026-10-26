@@ -129,6 +129,7 @@ Vk g_vk;
 Dlss g_dlss;
 std::vector<Retired> g_retired;
 uint64_t g_frameCounter = 0;
+int32_t g_fgMax = -1;  // irisdlss_frame_generation_max, read once after NGX init
 
 std::string narrow(const wchar_t* text) {
     if (!text) {
@@ -633,9 +634,34 @@ IRISDLSS_API int32_t irisdlss_init() {
         return fail(IRISDLSS_DLSS_UNAVAILABLE,
             ngxError("DLSS Super Resolution unavailable", static_cast<NVSDK_NGX_Result>(initResult)));
     }
+    g_fgMax = -1;
+    int fgMax = irisdlss_frame_generation_max();
     g_message = "DLSS Super Resolution available on " + g_vk.deviceName + " (game's Vulkan device"
-        + (g_vk.presentQueue ? ", presenter queue)" : ", no presenter queue)");
+        + (g_vk.presentQueue ? ", presenter queue" : ", no presenter queue")
+        + (fgMax > 0 ? ", Frame Generation up to " + std::to_string(fgMax) + "x)" : ", no Frame Generation)");
     return IRISDLSS_OK;
+}
+
+IRISDLSS_API int32_t irisdlss_frame_generation_max() {
+    if (!g_vk.capabilities) {
+        return 0;
+    }
+    if (g_fgMax >= 0) {
+        return g_fgMax;
+    }
+    int available = 0;
+    if (NVSDK_NGX_FAILED(NVSDK_NGX_Parameter_GetI(g_vk.capabilities, NVSDK_NGX_Parameter_FrameGeneration_Available,
+            &available)) || !available) {
+        return 0;
+    }
+    // Generated frames per rendered one; unset or 1 means no multi frame generation.
+    unsigned int generated = 1;
+    if (NVSDK_NGX_FAILED(NVSDK_NGX_Parameter_GetUI(g_vk.capabilities, NVSDK_NGX_DLSSG_Parameter_MultiFrameCountMax,
+            &generated)) || generated < 1) {
+        generated = 1;
+    }
+    g_fgMax = generated >= 3 ? 4 : static_cast<int32_t>(generated) + 1;
+    return g_fgMax;
 }
 
 IRISDLSS_API void irisdlss_frame_submitted() {
@@ -761,11 +787,12 @@ IRISDLSS_API int32_t irisdlss_evaluate(uint64_t commandBuffer, const IrisDlssIma
 // The finished frame leaves through a Vulkan swapchain on a child window that covers the game
 // window; the game's own swapchain stays idle. The copy of the frame and DLSS-G run in the game's
 // command buffer; the presenter thread waits for that submission (timeline semaphore) on its own
-// queue and shows the generated frame first, the real one half a frame interval later.
+// queue and shows the generated frames first, evenly spaced, then the real one.
 
 namespace {
 
 constexpr int kSlotCount = 3;
+constexpr int kMaxGenerated = 3;  // DLSS 4 multi frame generation: up to 4x
 constexpr int kBlitCount = 4;
 constexpr VkImageSubresourceRange kColorRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
@@ -777,13 +804,13 @@ struct LocalImage {
 
 struct PresentSlot {
     LocalImage real;
-    LocalImage interp;
+    LocalImage interp[kMaxGenerated];  // [1] and [2] are created when multi frame generation first needs them
     bool busy = false;  // queued for / shown by the presenter thread (guarded by Presenter::mutex)
 };
 
 struct Job {
     int slot;
-    bool interpolated;
+    int generated;  // generated frames to show before the real one (0 = none)
     uint64_t value;  // timeline value signaled when the slot's images are rendered
     double queued;   // when the game handed the frame over (render thread)
     double started;  // when the game started the frame (irisdlss_presenter_frame_start), 0 if unknown
@@ -839,6 +866,8 @@ struct Presenter {
     NVSDK_NGX_Handle* fg = nullptr;
     NVSDK_NGX_Parameter* fgParams = nullptr;
     bool fgFailed = false;
+    std::atomic<int> generatedWanted{1};  // generated frames per rendered one (irisdlss_presenter_set_generated)
+    int lastGeneratedCount = 0;           // of the last frame-generated present (render thread)
 
     // Pacing and stats.
     double frequency = 1.0;
@@ -848,7 +877,7 @@ struct Presenter {
     std::atomic<uint32_t> generatedCount{0};
     double statsStart = 0.0;
     float fps = 0.0f;
-    bool fgRecently = false;
+    int fgFactor = 0;  // frame generation multiplier in the last second, 0 if it did not run
     Timing timing;
     std::atomic<float> intervalMs{0.0f};
     std::atomic<float> jitterMs{0.0f};
@@ -859,7 +888,7 @@ struct Presenter {
     // Frame start pacing (low latency): when the presenter last took a job, how long a presenter
     // cycle and a game frame take.
     std::atomic<double> lastTake{0.0};
-    std::atomic<bool> lastInterpolated{false};
+    std::atomic<int> lastGenerated{0};
     std::atomic<double> renderTime{0.0};  // frame start until the GPU finished it
     std::atomic<double> refreshPeriod{0.0};
     double refreshChecked = 0.0;
@@ -1318,34 +1347,32 @@ void presenterLoop() {
             g_present.jobs.pop_front();
         }
         g_present.lastTake = now();
-        g_present.lastInterpolated = job.interpolated;
+        g_present.lastGenerated = job.generated;
         g_present.cv.notify_all();  // the game may start its next frame now
 
         PresentSlot& slot = g_present.slots[job.slot];
         // With VSync and present wait every frame waits until it is on screen, so the generated and
-        // the real frame each get one refresh. Otherwise the real frame follows half a frame later.
+        // the real frames each get one refresh. Otherwise they are spread evenly over a frame interval.
         bool paceOnDisplay = g_vk.presentWait && g_present.vsync;
         bool shown = waitRendered(job.value);
-        if (job.interpolated) {
-            if (shown) {
-                double start = now();
-                uint64_t id = showImage(slot.interp, job.value);
-                g_present.generatedCount++;
-                if (paceOnDisplay) {
-                    waitDisplayed(id);
-                } else {
-                    if (g_vk.presentWait) {
-                        waitDisplayed(id);  // timing only: returns right away without VSync
-                    }
-                    bool backlog;
-                    {
-                        std::lock_guard<std::mutex> lock(g_present.mutex);
-                        backlog = !g_present.jobs.empty();
-                    }
-                    if (!backlog) {
-                        sleepUntil(start + g_present.frameInterval.load() * 0.5);
-                    }
-                }
+        double start = now();
+        for (int i = 0; shown && i < job.generated; i++) {
+            uint64_t id = showImage(slot.interp[i], job.value);
+            g_present.generatedCount++;
+            if (paceOnDisplay) {
+                waitDisplayed(id);
+                continue;
+            }
+            if (g_vk.presentWait) {
+                waitDisplayed(id);  // timing only: returns right away without VSync
+            }
+            bool backlog;
+            {
+                std::lock_guard<std::mutex> lock(g_present.mutex);
+                backlog = !g_present.jobs.empty();
+            }
+            if (!backlog) {
+                sleepUntil(start + g_present.frameInterval.load() * (i + 1) / (job.generated + 1));
             }
         }
         if (shown) {
@@ -1670,7 +1697,9 @@ IRISDLSS_API void irisdlss_presenter_destroy() {
     releaseFrameGeneration();
     for (PresentSlot& slot : g_present.slots) {
         destroyLocalImage(slot.real);
-        destroyLocalImage(slot.interp);
+        for (LocalImage& interp : slot.interp) {
+            destroyLocalImage(interp);
+        }
         slot = PresentSlot{};
     }
     for (int i = 0; i < kBlitCount; i++) {
@@ -1763,7 +1792,7 @@ IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t wid
     }
     g_present.timeline = createSemaphore(true);
     for (PresentSlot& slot : g_present.slots) {
-        if (!createLocalImage(slot.real, width, height) || !createLocalImage(slot.interp, width, height)) {
+        if (!createLocalImage(slot.real, width, height) || !createLocalImage(slot.interp[0], width, height)) {
             irisdlss_presenter_destroy();
             return fail(IRISDLSS_DEVICE_FAILED, "present slot creation failed");
         }
@@ -1810,12 +1839,12 @@ IRISDLSS_API void irisdlss_presenter_frame_start() {
             [] { return g_present.stop || g_present.jobs.empty() || g_present.threadFailed; });
     }
     // 2. With VSync the presenter needs the next frame after the one it took is on screen: one
-    // refresh per shown frame, two with frame generation. Start this one so it is done just in time
+    // refresh per shown frame, generated ones included. Start this one so it is done just in time
     // (render time plus a margin), with input as fresh as possible.
     double refresh = g_present.refreshPeriod.load();
     double render = g_present.renderTime.load();
     if (g_present.vsync && g_vk.presentWait && refresh > 0.0 && render > 0.0) {
-        double cycle = refresh * (g_present.lastInterpolated ? 2.0 : 1.0);
+        double cycle = refresh * (1 + g_present.lastGenerated.load());
         double target = g_present.lastTake.load() + cycle - render * 1.1 - 0.002;
         double wait = target - now();
         if (wait > 0.0 && wait < 0.05) {
@@ -1830,6 +1859,12 @@ IRISDLSS_API void irisdlss_presenter_set_vsync(int32_t vsync) {
     if (g_present.vsync.exchange(value) != value) {
         g_present.recreate = true;
     }
+}
+
+IRISDLSS_API void irisdlss_presenter_set_generated(int32_t count) {
+    int max = irisdlss_frame_generation_max() - 1;
+    count = count > max ? max : count;
+    g_present.generatedWanted = count < 1 ? 1 : count;
 }
 
 IRISDLSS_API uint64_t irisdlss_presenter_timeline() {
@@ -1867,7 +1902,7 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
     g_present.lastFrame = t;
     if (t - g_present.statsStart >= 1.0) {
         g_present.fps = static_cast<float>(g_present.shownCount.exchange(0) / (t - g_present.statsStart));
-        g_present.fgRecently = g_present.generatedCount.exchange(0) > 0;
+        g_present.fgFactor = g_present.generatedCount.exchange(0) > 0 ? 1 + g_present.lastGeneratedCount : 0;
         g_present.statsStart = t;
     }
 
@@ -1885,6 +1920,15 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
     // Frame generation needs this frame's depth / motion vectors / hudless output at matching sizes.
     bool useFg = fg != nullptr && depth && motion && hudless && g_dlss.handle != nullptr
         && hudless->width == g_present.width && hudless->height == g_present.height && ensureFrameGeneration(cmd);
+    int generated = useFg ? g_present.generatedWanted.load() : 0;
+    for (int i = 1; i < generated; i++) {
+        // The slot is not busy: its images are free to create.
+        if (!slot.interp[i].image && !createLocalImage(slot.interp[i], g_present.width, g_present.height)) {
+            destroyLocalImage(slot.interp[i]);
+            generated = i;
+            break;
+        }
+    }
 
     VkImageMemoryBarrier copyIn[2] = {
         barrier(*frame, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL),
@@ -1901,18 +1945,20 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
 
     NVSDK_NGX_Result fgResult = NVSDK_NGX_Result_Success;
     if (useFg) {
-        VkImageMemoryBarrier toEval[5] = {
+        std::vector<VkImageMemoryBarrier> toEval = {
             barrier(slot.real.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
-            barrier(slot.interp.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL),
             barrier(*depth, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
             barrier(*motion, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
             barrier(*hudless, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
         };
-        pipelineBarrier(cmd, 5, toEval);
+        for (int i = 0; i < generated; i++) {
+            toEval.push_back(barrier(slot.interp[i].image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_GENERAL));
+        }
+        pipelineBarrier(cmd, static_cast<uint32_t>(toEval.size()), toEval.data());
 
         NVSDK_NGX_Resource_VK backbuffer = resource(describe(slot.real, g_present.width, g_present.height), false);
-        NVSDK_NGX_Resource_VK interp = resource(describe(slot.interp, g_present.width, g_present.height), true);
         NVSDK_NGX_Resource_VK depthResource = resource(*depth, false);
         NVSDK_NGX_Resource_VK motionResource = resource(*motion, false);
         NVSDK_NGX_Resource_VK hudlessResource = resource(*hudless, false);
@@ -1921,7 +1967,6 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
         eval.pDepth = &depthResource;
         eval.pMVecs = &motionResource;
         eval.pHudless = &hudlessResource;
-        eval.pOutputInterpFrame = &interp;
         NVSDK_NGX_DLSSG_Opt_Eval_Params opt{};
         std::memcpy(opt.cameraViewToClip, fg + IRISDLSS_FG_VIEW_TO_CLIP, sizeof(opt.cameraViewToClip));
         std::memcpy(opt.clipToCameraView, fg + IRISDLSS_FG_CLIP_TO_VIEW, sizeof(opt.clipToCameraView));
@@ -1947,24 +1992,33 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
         opt.cameraMotionIncluded = true;
         opt.colorBuffersHDR = false;
         opt.motionVectorsInvalidValue = 1e30f;  // every vector we write is valid
-        fgResult = NGX_VK_EVALUATE_DLSSG(cmd, g_present.fg, g_present.fgParams, &eval, &opt);
+        // One evaluation per generated frame: count = generated frames per rendered one, index 1..count.
+        for (int i = 0; i < generated && NVSDK_NGX_SUCCEED(fgResult); i++) {
+            NVSDK_NGX_Resource_VK interp = resource(describe(slot.interp[i], g_present.width, g_present.height), true);
+            eval.pOutputInterpFrame = &interp;
+            opt.multiFrameCount = static_cast<unsigned int>(generated);
+            opt.multiFrameIndex = static_cast<unsigned int>(i + 1);
+            fgResult = NGX_VK_EVALUATE_DLSSG(cmd, g_present.fg, g_present.fgParams, &eval, &opt);
+        }
 
-        VkImageMemoryBarrier afterEval[6] = {
+        std::vector<VkImageMemoryBarrier> afterEval = {
             barrier(slot.real.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL),
-            barrier(slot.interp.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_GENERAL,
                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL),
             barrier(*depth, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL),
             barrier(*motion, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL),
             barrier(*hudless, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL),
             barrier(*frame, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL),
         };
-        pipelineBarrier(cmd, 6, afterEval);
+        for (int i = 0; i < generated; i++) {
+            afterEval.push_back(barrier(slot.interp[i].image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_GENERAL,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL));
+        }
+        pipelineBarrier(cmd, static_cast<uint32_t>(afterEval.size()), afterEval.data());
         if (g_capture.remaining > 0) {
             // Generated frame (between the previous and this real frame), then this real frame.
             wchar_t name[64];
             std::swprintf(name, 64, L"fg_%03d_a_generated.png", g_capture.frame);
-            captureImage(cmd, slot.interp.image, g_present.width, g_present.height, name);
+            captureImage(cmd, slot.interp[0].image, g_present.width, g_present.height, name);
             std::swprintf(name, 64, L"fg_%03d_b_real.png", g_capture.frame);
             captureImage(cmd, slot.real.image, g_present.width, g_present.height, name);
             std::swprintf(name, 64, L"fg_%03d_c_motion.png", g_capture.frame);
@@ -1990,7 +2044,11 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
     {
         std::lock_guard<std::mutex> lock(g_present.mutex);
         slot.busy = true;
-        g_present.jobs.push_back({slotIndex, useFg && NVSDK_NGX_SUCCEED(fgResult), value, t, g_present.frameStart});
+        g_present.jobs.push_back({slotIndex, NVSDK_NGX_SUCCEED(fgResult) ? generated : 0, value, t,
+            g_present.frameStart});
+    }
+    if (generated > 0 && NVSDK_NGX_SUCCEED(fgResult)) {
+        g_present.lastGeneratedCount = generated;
     }
     g_present.cv.notify_all();
     g_present.nextSlot = (slotIndex + 1) % kSlotCount;
@@ -1999,7 +2057,8 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
     if (NVSDK_NGX_FAILED(fgResult)) {
         // Keep presenting; frame generation stays off until the presenter is recreated.
         g_present.fgFailed = true;
-        g_message = ngxError("frame generation evaluate failed", fgResult);
+        g_message = ngxError("frame generation evaluate failed", fgResult) + " (" + std::to_string(generated)
+            + " generated frames)";
         return IRISDLSS_DLSS_UNAVAILABLE;
     }
     return IRISDLSS_OK;
@@ -2013,7 +2072,7 @@ IRISDLSS_API void irisdlss_debug_capture(int32_t frames, const wchar_t* dir) {
 
 IRISDLSS_API void irisdlss_presenter_stats(float stats[IRISDLSS_STATS_COUNT]) {
     stats[0] = g_present.fps;
-    stats[1] = g_present.fgRecently ? 1.0f : 0.0f;
+    stats[1] = static_cast<float>(g_present.fgFactor);
     stats[2] = g_present.threadFailed ? 1.0f : 0.0f;
     double interval = g_present.frameInterval.load();
     stats[3] = interval > 0.0 ? static_cast<float>(1.0 / interval) : 0.0f;

@@ -21,7 +21,7 @@ public final class DevScreens {
     /** Minecraft.runTick, every frame. */
     public static void frame() {
         Minecraft minecraft = Minecraft.getInstance();
-        if (SCREEN == null || minecraft.level == null || minecraft.player == null || ++framesInWorld != 300) {
+        if (SCREEN == null || minecraft.level == null || minecraft.player == null || ++framesInWorld != 60) {
             return;
         }
         try {

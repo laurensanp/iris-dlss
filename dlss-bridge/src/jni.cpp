@@ -115,6 +115,14 @@ JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_setVsync(JNIEnv*, jclass, jb
     irisdlss_presenter_set_vsync(vsync ? 1 : 0);
 }
 
+JNIEXPORT jint JNICALL Java_com_irisdlss_DlssNative_frameGenerationMax(JNIEnv*, jclass) {
+    return irisdlss_frame_generation_max();
+}
+
+JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_setGeneratedFrames(JNIEnv*, jclass, jint count) {
+    irisdlss_presenter_set_generated(count);
+}
+
 JNIEXPORT void JNICALL Java_com_irisdlss_DlssNative_frameStart(JNIEnv*, jclass) {
     irisdlss_presenter_frame_start();
 }
