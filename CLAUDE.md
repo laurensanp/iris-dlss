@@ -133,7 +133,9 @@ Progress, in the fork:
   connection fails often right after a build, just rerun.
 * Depth mipmaps work (`VulkanDepthMipmaps`, 2x2 texelFetch average: filtered reads of the depth view returned 0;
   own test pack `fabric/run/shaderpacks/VulkanTestMip` shows shadowtex0 mip 0 left / mip 4 right).
-* Open: arrays of images, perf check vs before M3, M3 build not yet checked in real Lunar play. History of iris-dlss keeps Kiwious' Claude co-author lines (user decided not to rewrite).
+* Open: arrays of images, perf check vs before M3. **First Lunar test of the M3 build (2026-10-26) found two bugs,
+  see `docs/issues/2026-10-26-lunar-m3.md`:** shadows bright at night (screenshot there), and ~10 fps on a
+  server because Lunar's capes throw on every shadow-pass player submit (log spam, ~10k stack traces). History of iris-dlss keeps Kiwious' Claude co-author lines (user decided not to rewrite).
   Grep the log for `Not supported on Vulkan yet` and `ignored GlStateManager.` to see what a pack hits.
 * The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
 * `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
