@@ -2,6 +2,7 @@ package com.irisdlss.mixin;
 
 import com.irisdlss.DlssConfig;
 import com.irisdlss.DlssUpscaler;
+import com.irisdlss.FrameStats;
 import com.irisdlss.VulkanPresenter;
 import java.util.ArrayList;
 import java.util.List;
@@ -32,12 +33,16 @@ public abstract class HudMixin {
         }
         List<String> lines = new ArrayList<>();
         int rendered = minecraft.getFps();
+        int renderedLow = Math.round(FrameStats.renderedLow());
         if (VulkanPresenter.isRunning()) {
             int shown = Math.round(VulkanPresenter.shownFps());
+            int shownLow = Math.round(VulkanPresenter.shownLowFps());
             lines.add(DlssConfig.frameGeneration && shown > rendered * 1.3F
-                ? shown + " fps (" + rendered + " rendered, Frame Generation)" : shown + " fps");
+                ? shown + " fps, 1% low " + shownLow + " (rendered " + rendered + ", 1% low " + renderedLow
+                    + ", Frame Generation)"
+                : shown + " fps, 1% low " + shownLow);
         } else {
-            lines.add(rendered + " fps");
+            lines.add(rendered + " fps, 1% low " + renderedLow);
         }
         if (DlssConfig.overlay == DlssConfig.Overlay.DETAILED) {
             lines.add(DlssUpscaler.statusLine());
