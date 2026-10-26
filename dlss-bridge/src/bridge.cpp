@@ -1376,35 +1376,32 @@ void presenterLoop() {
         g_present.cv.notify_all();  // the game may start its next frame now
 
         PresentSlot& slot = g_present.slots[job.slot];
-        // With VSync and present wait every frame waits until it is on screen, so the generated and
-        // the real frames each get one refresh. Otherwise they are spread evenly over a frame interval.
-        bool paceOnDisplay = g_vk.presentWait && g_present.vsync;
+        // The generated frames and the real one are spread evenly over the time the game takes for a
+        // frame. With VSync each also waits until it is on screen (at least one refresh); showing them
+        // back to back at the refresh rate instead would burst when the game renders slower than
+        // refresh / (generated + 1) and then pause until its next frame.
         bool shown = waitRendered(job.value);
         double start = now();
-        for (int i = 0; shown && i < job.generated; i++) {
-            uint64_t id = showImage(slot.interp[i], job.value);
-            g_present.generatedCount++;
-            if (paceOnDisplay) {
-                waitDisplayed(id);
-                continue;
-            }
-            if (g_vk.presentWait) {
-                waitDisplayed(id);  // timing only: returns right away without VSync
-            }
+        double spacing = g_present.frameInterval.load() / (job.generated + 1);
+        for (int i = 0; shown && i <= job.generated; i++) {
             bool backlog;
             {
                 std::lock_guard<std::mutex> lock(g_present.mutex);
                 backlog = !g_present.jobs.empty();
             }
-            if (!backlog) {
-                sleepUntil(start + g_present.frameInterval.load() * (i + 1) / (job.generated + 1));
+            if (i > 0 && !backlog) {
+                sleepUntil(start + spacing * i);
+            }
+            bool real = i == job.generated;
+            uint64_t id = showImage(real ? slot.real : slot.interp[i], job.value);
+            if (!real) {
+                g_present.generatedCount++;
+            }
+            if (g_vk.presentWait) {
+                waitDisplayed(id);  // without VSync: timing only, returns right away
             }
         }
         if (shown) {
-            uint64_t id = showImage(slot.real, job.value);
-            if (g_vk.presentWait) {
-                waitDisplayed(id);
-            }
             recordLatency(job.queued);
         }
         waitBlits();
