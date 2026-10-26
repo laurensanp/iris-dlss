@@ -166,6 +166,9 @@ Progress, in the fork:
   applies the same fog; the world reference is released in `VoxyInstance.shutdown` (else Voxy force-closes worlds).
   Log line every 10 s: sections selected/meshed/drawn, quads, fog range. Meshing the first ring takes a few seconds
   (use `-PtestTicks=400+` for screenshots). Still open: shadow pass skipped; stage 2 = Solas' voxy programs.
+  Installed in Lunar 2026-10-27: `voxy-0.2.20-beta.jar` re-enabled (was `.jar.disabled`) + `voxy-vulkan-0.1.0+mc26.3.jar`
+  (backup `mods-backup-2026-10-27-voxy/`); Lunar's Sodium 0.9.3-beta.1 has the same `DefaultChunkRenderer.render`
+  signature. Lunar also has `nofog` and `voxy-server-side`. Stage 2 plan: `docs/voxy-vulkan-stage2.md`.
 - The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
 - `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
   files, recreate it from the description above if missing.
