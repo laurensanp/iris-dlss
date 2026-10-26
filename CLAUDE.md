@@ -99,7 +99,7 @@ Progress, in the fork:
   the java processes, the launcher may stay open): fork `gradlew :fabric:build` -> `build/libs/iris-fabric-*.jar`
   (repo root, not `fabric/build`), copied over `mods/iris-fabric-vulkan+mc26.3.jar`; `mod/build/libs/iris-dlss-*.jar`
   over `mods/iris-dlss-0.4.0+mc26.3.jar` (same names, no duplicates). Back up the old jars first
-  (`mods-backup-<date>/`). Last install 2026-10-26 (everything up to the settings UI). Lunar's Sodium is
+  (`mods-backup-<date>/`). Last install 2026-10-26 18:27 (M3 incl. depth mipmaps, iris-dlss 0.5.0 jar under the old 0.4.0 name; previous jars in `mods-backup-2026-10-26-m3/`). Lunar's Sodium is
   0.9.3-beta.1 (dev: 0.9.2), it also has ImmediatelyFast, entityculling, dynamic-fps, Xaero's maps.
   The user's Solas settings live in `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap
   tweaks, shadowMapResolution 4096) and compile on Vulkan; voxel/floodfill options wait for M3.
@@ -131,9 +131,9 @@ Progress, in the fork:
   its denoiser, not a port bug).
   Dev: `-PvkDebug=nocompute,noclear`, GPU crash checkpoints name raw passes in crash reports; Gradle daemon
   connection fails often right after a build, just rerun.
-* Open: depth mipmaps (`VulkanDepthMipmaps` runs, mips stay empty; test pack `fabric/run/shaderpacks/VulkanTestMip`
-  shows mip 0 left / mip 4 right), arrays of images, perf check vs before, Lunar install of the M3 build
-  (not done yet). History of iris-dlss keeps Kiwious' Claude co-author lines (user decided not to rewrite).
+* Depth mipmaps work (`VulkanDepthMipmaps`, 2x2 texelFetch average: filtered reads of the depth view returned 0;
+  own test pack `fabric/run/shaderpacks/VulkanTestMip` shows shadowtex0 mip 0 left / mip 4 right).
+* Open: arrays of images, perf check vs before M3, M3 build not yet checked in real Lunar play. History of iris-dlss keeps Kiwious' Claude co-author lines (user decided not to rewrite).
   Grep the log for `Not supported on Vulkan yet` and `ignored GlStateManager.` to see what a pack hits.
 * The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
 * `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
