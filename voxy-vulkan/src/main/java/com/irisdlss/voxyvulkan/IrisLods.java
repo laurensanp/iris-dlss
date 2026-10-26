@@ -14,6 +14,12 @@ final class IrisLods {
     private IrisLods() {
     }
 
+    /** A shader pack is in use (Iris draws the world with its programs). */
+    static boolean packActive() {
+        return Iris.getPipelineManager().getPipelineNullable() instanceof IrisRenderingPipeline pipeline
+            && pipeline.shouldOverrideShaders();
+    }
+
     /** The pack's Voxy pipeline data, null without a pack or without Voxy programs in it. */
     @Nullable
     static IrisVoxyRenderPipelineData data() {

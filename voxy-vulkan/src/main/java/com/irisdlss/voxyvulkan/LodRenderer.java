@@ -137,6 +137,7 @@ public final class LodRenderer {
     private static final Long2ObjectOpenHashMap<GpuMesh> meshes = new Long2ObjectOpenHashMap<>();
     private static int frames;
     private static long lastLog;
+    private static boolean packActive;
     /** Where the LODs end (blocks), 0 while none are drawn; the distance fog moves out to it. */
     private static float lodFogEnd;
     private static boolean loggedProjection;
@@ -146,15 +147,20 @@ public final class LodRenderer {
 
     /** The distance fog's end while LODs are drawn, else 0 (FogRenderer, every frame). */
     public static float fogEnd() {
-        return engine != null ? lodFogEnd : 0.0F;
+        return engine != null && !packActive ? lodFogEnd : 0.0F;
     }
 
     /** Sodium's opaque terrain pass, after Sodium's draws. */
     public static void render(RenderPass pass, ChunkRenderMatrices matrices, CameraTransform camera, FogParameters fog) {
-        if (failed || inIrisShadowPass()) {
+        // With a shader pack the pass is Iris' gbuffers pass: LODs need the pack's Voxy program there (stage 2,
+        // not done); drawing them with this pipeline would not match its attachments.
+        packActive = IrisLods.packActive();
+        if (packActive) {
+            IrisLods.data(); // dev: -Dvoxy-vulkan.dumpPatch=true logs the pack's Voxy patch once
+        }
+        if (failed || packActive || inIrisShadowPass()) {
             return;
         }
-        IrisLods.data();
         VoxyConfig config = VoxyConfig.CONFIG;
         Minecraft minecraft = Minecraft.getInstance();
         ClientLevel level = minecraft.level;
