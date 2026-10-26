@@ -113,7 +113,27 @@ Progress, in the fork:
   (`VulkanTransformer.emulateShadowSamplers`). Verified against GL reference shots (view
   `time set 1500;weather clear;tp @p -36 84 18 -90 20`, trees casting shadows): Solas 3.8 and Complementary
   Reimagined (hardware shadow samplers) match. Not done: depth mipmaps (shadowtex*Mipmap), geometry shaders.
-* Known gaps (M3): geometry/tessellation shaders, compute, images, colour space conversion.
+* **M3 rest done (2026-10-26, fork up to `6a9563928`)**, all raw Vulkan from Java (LWJGL) on RenderPearl's
+  command buffer: RenderPearl keeps every image in GENERAL layout and puts a full barrier after each pass
+  (`VulkanRaw`). Compute = shaderc pipelines, push descriptors set 0 (every descriptor renumbered, else
+  unused samplers collide at binding 0), dispatched between full barriers (`VulkanCompute`). Storage
+  images + SSBOs in descriptor set 1, one binding per image name / SSBO index (`VulkanStorage`,
+  `VulkanTransformer.bindStorage`), hidden from RenderPearl reflection, added to its pipeline layouts
+  (`MixinSPIRVModule_Storage`, `MixinVulkanRenderPipeline_Storage`, `MixinVulkanRenderPass_Storage`). 1D/3D
+  textures = RenderPearl textures retargeted by mixins (`MixinVulkanGpuTexture_Dimension`); SSBOs = VMA
+  buffers (`VulkanBuffers`); raw custom textures converted from GL layouts (`VulkanTextures.createFromPixels`).
+  Geometry/tessellation stages added at vkCreateGraphicsPipelines (`VulkanStages`). Device features
+  (vertex/fragment stores, geometry, tessellation) enabled in `MixinVulkanBackend_Features`. Colour space
+  conversion: `VulkanColorSpaceConverter`. >8 gbuffer buffers: per-phase attachment sets learned at runtime.
+  Verified against GL shots (`-PdlssOff` = Vulkan without DLSS): Solas flood-fill coloured light (white
+  room test: `fill -66 100 10 -54 108 26 white_concrete hollow` + light blocks, tp -64 101 18 -90 15),
+  Rethinking Voxels, Photon, Bliss, Complementary; Sildur's runs. RV with DLSS on is noisy (DLSS jitter vs
+  its denoiser, not a port bug).
+  Dev: `-PvkDebug=nocompute,noclear`, GPU crash checkpoints name raw passes in crash reports; Gradle daemon
+  connection fails often right after a build, just rerun.
+* Open: depth mipmaps (`VulkanDepthMipmaps` runs, mips stay empty; test pack `fabric/run/shaderpacks/VulkanTestMip`
+  shows mip 0 left / mip 4 right), arrays of images, perf check vs before, Lunar install of the M3 build
+  (not done yet). History of iris-dlss keeps Kiwious' Claude co-author lines (user decided not to rewrite).
   Grep the log for `Not supported on Vulkan yet` and `ignored GlStateManager.` to see what a pack hits.
 * The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
 * `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
