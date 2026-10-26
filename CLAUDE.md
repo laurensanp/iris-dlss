@@ -99,7 +99,7 @@ Progress, in the fork:
   the java processes, the launcher may stay open): fork `gradlew :fabric:build` -> `build/libs/iris-fabric-*.jar`
   (repo root, not `fabric/build`), copied over `mods/iris-fabric-vulkan+mc26.3.jar`; `mod/build/libs/iris-dlss-*.jar`
   over `mods/iris-dlss-0.4.0+mc26.3.jar` (same names, no duplicates). Back up the old jars first
-  (`mods-backup-<date>/`). Last install 2026-10-26 18:27 (M3 incl. depth mipmaps, iris-dlss 0.5.0 jar under the old 0.4.0 name; previous jars in `mods-backup-2026-10-26-m3/`). Lunar's Sodium is
+  (`mods-backup-<date>/`). Last install 2026-10-26 21:57 (fork `423a6a77f`, cape fix; previous jar in `mods-backup-2026-10-26-capes/`). The mods folder now holds `iris-dlss-0.5.0+mc26.3.jar`. Lunar's Sodium is
   0.9.3-beta.1 (dev: 0.9.2), it also has ImmediatelyFast, entityculling, dynamic-fps, Xaero's maps.
   The user's Solas settings live in `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap
   tweaks, shadowMapResolution 4096) and compile on Vulkan; voxel/floodfill options wait for M3.
