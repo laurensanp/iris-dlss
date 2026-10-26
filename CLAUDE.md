@@ -137,7 +137,10 @@ Progress, in the fork:
   see `docs/issues/2026-10-26-lunar-m3.md`:** shadows bright at night (screenshot there), and ~10 fps on a
   server because Lunar's capes throw on every shadow-pass player submit (log spam, ~10k stack traces). History of iris-dlss keeps Kiwious' Claude co-author lines (user decided not to rewrite).
   Grep the log for `Not supported on Vulkan yet` and `ignored GlStateManager.` to see what a pack hits.
-  Look at the Lava ingame. it doesn't look as solas on opengl.
+  Follow-up 2026-10-26 evening (in the issue file): cape fix in fork `423a6a77f`; night patches and lava match
+  OpenGL in a controlled dev scene (pack behaviour, lava noise is time-dependent); `enableDebugOptions=true`
+  breaks Solas because debug mode keeps unused functions with undeclared uniforms (upstream behaviour).
+  Gradle: JDK is in `~/.jdks/jdk-25.0.4.1+1` (set `JAVA_HOME`); `--no-daemon` avoids the daemon connection failures.
 - The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
 - `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
   files, recreate it from the description above if missing.
