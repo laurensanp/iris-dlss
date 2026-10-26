@@ -14,6 +14,7 @@ Windows 11) with Solas 3.8. Bug reports welcome in the [issues](https://github.c
 * [Lunar Client](#lunar-client)
 * [Settings](#settings)
 * [Shader packs on Vulkan](#shader-packs-on-vulkan)
+* [Voxy LODs on Vulkan](#voxy-lods-on-vulkan)
 * [Performance](#performance)
 * [Troubleshooting](#troubleshooting)
 * [Build from source (developers)](#build-from-source-developers)
@@ -87,20 +88,42 @@ F3 also shows two DLSS lines: render size → output size, and shown / rendered 
 ## Shader packs on Vulkan
 
 Iris normally needs OpenGL. The [iris-vulkan](https://github.com/laurensanp/iris-vulkan) fork runs packs
-on Minecraft's Vulkan renderer (branch `vulkan-m2`). State on 2026-10-26:
+on Minecraft's Vulkan renderer (branch `vulkan-m2`). State on 2026-10-27:
 
 | Pack | Status |
 |---|---|
-| Solas 3.8 | Runs (best tested) |
-| Complementary Reimagined / Unbound r5.9.3 | Run |
+| Solas 3.8 | Runs (best tested), incl. shadows and flood-fill coloured light |
+| Complementary Reimagined / Unbound r5.9.3 | Run, incl. shadows |
 | BSL 10.1.8 | Runs |
 | MakeUp Ultra Fast 9.6 | Runs |
-| Photon 1.4, Bliss 2.1.2, Sildur's Vibrant 2.02 | Don't compile yet (the game falls back to no shaders, or the game's shaders for single programs) |
-| Rethinking Voxels | Needs compute shaders / SSBOs / custom images: not possible yet |
+| Photon 1.4, Bliss 2.1.2 | Run (compared with OpenGL) |
+| Sildur's Vibrant 2.02 | Runs |
+| Rethinking Voxels | Runs; noisy with DLSS on (its denoiser vs DLSS' jitter) |
 
-Missing on Vulkan for every pack (planned, "M3"): **shadows** (shadow pass), compute shaders, custom /
-3D images (voxel and flood-fill lighting read zero), geometry and tessellation shaders. Pack options for
-those have no effect yet. Voxy is not supported on Vulkan yet.
+Since milestone M3 (2026-10-26) the fork has the **shadow pass** (shadow maps, shadowcolor, hardware
+shadow samplers emulated, depth mipmaps), **compute shaders**, **SSBOs**, **custom 1D/2D/3D images**
+(voxel and flood-fill lighting), **geometry and tessellation shaders** and colour space conversion, all on
+Minecraft's Vulkan device. Compared against OpenGL screenshots with Solas, Complementary, Photon, Bliss and
+Rethinking Voxels. Not done yet: arrays of images.
+
+## Voxy LODs on Vulkan
+
+[Voxy](https://modrinth.com/mod/voxy) only renders through OpenGL and refuses the Vulkan backend.
+[`voxy-vulkan/`](voxy-vulkan) is a separate small mod (milestone M4) that makes it work on Vulkan without
+changing Voxy: Voxy keeps its storage, LOD import ("ingest") and world engine, its OpenGL renderer is never
+started, and voxy-vulkan draws the LOD sections with an own Vulkan renderer (sections picked by distance,
+meshed off the render thread, block texture colours with biome tint, fog pushed out to the LOD distance).
+
+State on 2026-10-27:
+
+* **Stage 1, without a shader pack: works** (tested in a dev world and installed in Lunar Client).
+* **Stage 2, with a shader pack's Voxy programs (Solas): in progress.** With a pack active the game runs,
+  but the LODs are not drawn yet. Plan: [`docs/voxy-vulkan-stage2.md`](docs/voxy-vulkan-stage2.md).
+* LODs don't cast shadows yet.
+
+Install: Voxy 0.2.20-beta (from Modrinth, needs Fabric API) and `voxy-vulkan-*.jar` in `mods/`, next to
+this mod. There is no release jar of voxy-vulkan yet; build it from source (below). Voxy is
+All-Rights-Reserved: voxy-vulkan contains none of its code and is only built against it.
 
 ## Performance
 
@@ -154,6 +177,15 @@ The Iris fork is the `iris-vulkan` submodule (or clone it next to this repo):
 ```bat
 cd ..\iris-vulkan
 gradlew :fabric:build                                     :: build\libs\iris-fabric-*.jar (repository root)
+```
+
+voxy-vulkan compiles against Voxy, Sodium and the Iris fork (none of them are packed into its jar): put
+`voxy-0.2.20-beta.jar` (Modrinth) into `libs/` next to the Sodium jar, build the fork first (see above,
+the path is set as `iris_jar` in `voxy-vulkan/gradle.properties`), then:
+
+```bat
+cd ..\voxy-vulkan
+gradlew build                                             :: build\libs\voxy-vulkan-*.jar
 ```
 
 ### Test loop (in the fork)
@@ -218,7 +250,7 @@ submit signals a timeline semaphore ──────────────�
 
 ## Known issues
 
-* No shadows with shader packs yet (shadow pass not ported).
+* Voxy LODs are not drawn while a shader pack is active yet (stage 2, see above), and cast no shadows.
 * Some blur / noise in the distance while moving: motion vectors are camera-only (moving entities,
   water have none).
 * Frame Generation matrices are a best effort.

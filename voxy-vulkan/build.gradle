@@ -11,6 +11,7 @@ dependencies {
 	// Voxy's data and ingest code is used as installed by the player; Sodium for the terrain pass hook.
 	compileOnly files(project.property("voxy_jar"))
 	compileOnly files(project.property("sodium_jar"))
+	compileOnly files(project.property("iris_jar"))
 }
 
 processResources {
