@@ -43,6 +43,7 @@ Windows 11) with Solas 3.8. Bug reports welcome in the [issues](https://github.c
 4. Put a shader pack (zip) into `.minecraft/shaderpacks/` and pick it in Video Settings → Shader Packs.
    [Solas](https://modrinth.com/shader/solas-shader) is the best tested one.
 5. Start the game. It starts on **Vulkan** while DLSS is on (the "Graphics API" option is overridden).
+6. Optional, experimental: Voxy LODs, see [Voxy LODs on Vulkan](#voxy-lods-on-vulkan).
 
 Updating: close the game, replace the jars, start again. Your settings stay in
 `config/iris-dlss.properties`.
@@ -76,9 +77,10 @@ apply immediately.
 | Render resolution | Only for Custom: 33 – 100 % per axis |
 | Model | K (transformer, best detail, default), L / M (second-generation transformer, NVIDIA's defaults for Ultra Performance / Performance, more expensive), J (less ghosting), E (CNN, cheapest), driver default |
 | Sharpening | Contrast-adaptive sharpening after DLSS, 0 – 100 % |
-| Frame Generation | One generated frame between two rendered ones (RTX 40/50). Needs the presenter. |
+| Frame Generation | Generated frames between rendered ones (RTX 40/50). Needs the presenter. Best with VSync and at least ~60 fps rendered without it. |
+| Generated frames | 2x, 3x, 4x. Only what the GPU supports is offered: 3x / 4x (DLSS 4 multi frame generation) need an RTX 50; on RTX 40 the option shows 2x and is greyed out. |
 | DLSS presenter | Shows frames through its own swapchain (needed for Frame Generation, paces frames for low latency) |
-| Performance overlay | Off / FPS / Detailed, in the top left corner |
+| Performance overlay | Off / FPS / Detailed, in the top left corner: fps shown and rendered, each with its 1 % low (last five seconds) |
 | Advanced: Texture LOD bias | Sharper distant textures at lower render resolutions (after a restart) |
 | Advanced: Turn off shader pack TAA | Switches the pack's own TAA off at start (it blurs on top of DLSS) |
 | Advanced: Hand distance, Jitter direction | Troubleshooting |
@@ -122,7 +124,7 @@ State on 2026-10-27:
 * LODs don't cast shadows yet.
 
 Install: Voxy 0.2.20-beta (from Modrinth, needs Fabric API) and `voxy-vulkan-*.jar` in `mods/`, next to
-this mod. There is no release jar of voxy-vulkan yet; build it from source (below). Voxy is
+this mod. `voxy-vulkan-*.jar` is attached to the Iris DLSS Bridge releases (experimental). Voxy is
 All-Rights-Reserved: voxy-vulkan contains none of its code and is only built against it.
 
 ## Performance

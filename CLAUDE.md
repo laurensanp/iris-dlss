@@ -8,10 +8,9 @@ Two codebases, side by side:
 - **the Iris fork** (github.com/laurensanp/iris-vulkan, cloned next to this repo as `../iris-vulkan`;
   upstream github.com/IrisShaders/Iris branch `26.3`): porting Iris shader packs to Vulkan so they run
   together with DLSS. Plan and milestones are in `docs/vulkan-port.md`. **Read that first.**
-  Branches: `vulkan-m2` = current work (M1 + gbuffers, on top of `vulkan-m1`); `vulkan-m1` = M1 only;
-  `vulkan` = an earlier, separate start (own SPIR-V compiler/reflection, not rendering yet). `vulkan` and
-  `vulkan-m1` both branch off upstream `671a5c877` and touch 11 of the same files; decide with the user
-  which to continue before merging anything.
+  Branches: `vulkan-m2` = current work and GitHub default (M1-M3). Cleaned up 2026-10-27: `vulkan-m1` (contained
+  in m2) deleted; the first separate attempt (own SPIR-V compiler, never rendered) is only the tag
+  `archive/vulkan-first-attempt` now.
   (`iris-vulkan` is also recorded in this repo as a bare gitlink without `.gitmodules`; work in the
   separate clone, not through that entry.)
 
@@ -169,6 +168,12 @@ Progress, in the fork:
   Installed in Lunar 2026-10-27: `voxy-0.2.20-beta.jar` re-enabled (was `.jar.disabled`) + `voxy-vulkan-0.1.0+mc26.3.jar`
   (backup `mods-backup-2026-10-27-voxy/`); Lunar's Sodium 0.9.3-beta.1 has the same `DefaultChunkRenderer.render`
   signature. Lunar also has `nofog` and `voxy-server-side`. Stage 2 plan: `docs/voxy-vulkan-stage2.md`.
+  With a shader pack active the LODs are skipped (else the pipeline lands in Iris' redirected gbuffers pass and
+  RenderPearl throws "color attachment count must match"); `-Dvoxy-vulkan.dumpPatch=true` logs the pack's Voxy
+  patch as Voxy prepared it (`IrisLods`). voxy-vulkan compiles against the fork jar (`iris_jar`).
+- Releases 2026-10-27: iris-dlss `v0.6.0` (+ `voxy-vulkan-0.1.0+mc26.3.jar` attached, experimental) and iris-vulkan
+  `vulkan-v0.2.0` (M3). Lunar now has `iris-dlss-0.6.0+mc26.3.jar` (the old file name is gone; backup in
+  `mods-backup-2026-10-27-release/`).
 - The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
 - `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
   files, recreate it from the description above if missing.
