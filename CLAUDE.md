@@ -22,7 +22,7 @@ Goal in the end: Iris shader packs (Solas, Complementary) + Voxy LODs + DLSS SR/
 Milestones from `docs/vulkan-port.md`: M1 composite/final on Vulkan, M2 gbuffers, M3 shadows/compute/
 rest, M4 Voxy (own renderer; Voxy is All-Rights-Reserved, don't modify or ship its code).
 
-M1 in progress, in the fork:
+Progress, in the fork:
 
 * Done and verified in game (screenshot): with the `VulkanTest` pack on Vulkan + Sodium + DLSS SR, the
   vanilla world renders correctly, the pack's composite pass swaps red/blue and its final pass draws
@@ -102,9 +102,18 @@ M1 in progress, in the fork:
   (`mods-backup-<date>/`). Last install 2026-10-26 (everything up to the settings UI). Lunar's Sodium is
   0.9.3-beta.1 (dev: 0.9.2), it also has ImmediatelyFast, entityculling, dynamic-fps, Xaero's maps.
   The user's Solas settings live in `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap
-  tweaks, shadowMapResolution 4096) and compile on Vulkan; shadow/voxel/floodfill options wait for M3.
-* Known gaps (M3): shadow pass (skipped on Vulkan), geometry/tessellation shaders, compute, images, colour
-  space conversion.
+  tweaks, shadowMapResolution 4096) and compile on Vulkan; voxel/floodfill options wait for M3.
+* **M3 shadow pass done (2026-10-26, fork `ee2df74a8`).** Shadow render passes into the main target are
+  redirected like gbuffers (`VulkanGbuffers.redirectShadow`): shadowcolor buffers of all shadow programs'
+  DRAWBUFFERS + shadowtex0, render area = shadow resolution. Shadow variants reverse the pipeline's depth test
+  (shadow map is forward depth, cleared to 1; the world is reverse-Z) and don't cull, like GL Iris'
+  `MixinGlCommandEncoder`/`MixinGlRenderPipeline`. Draws without a shadow program write depth only.
+  shadowtex1 = copy of shadowtex0 before translucents; shadowcomp fullscreen passes run (`renderAllVulkan`).
+  `sampler2DShadow` -> `sampler2D` + `iris_shadow_*` functions doing LEQUAL compare with 2x2 PCF on texelFetch
+  (`VulkanTransformer.emulateShadowSamplers`). Verified against GL reference shots (view
+  `time set 1500;weather clear;tp @p -36 84 18 -90 20`, trees casting shadows): Solas 3.8 and Complementary
+  Reimagined (hardware shadow samplers) match. Not done: depth mipmaps (shadowtex*Mipmap), geometry shaders.
+* Known gaps (M3): geometry/tessellation shaders, compute, images, colour space conversion.
   Grep the log for `Not supported on Vulkan yet` and `ignored GlStateManager.` to see what a pack hits.
 * The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
 * `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
