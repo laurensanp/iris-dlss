@@ -9,6 +9,8 @@ import net.minecraft.client.Minecraft;
 public final class DlssBenchmark {
 
     private static final boolean ENABLED = Boolean.getBoolean("iris-dlss.benchmark");
+    /** Dev option -Diris-dlss.devNoDlss=true: DLSS off once in a world, the game stays on Vulkan (pack comparisons with OpenGL). */
+    private static final boolean NO_DLSS = Boolean.getBoolean("iris-dlss.devNoDlss");
     private static final long WARMUP_NANOS = 20_000_000_000L;
     private static final long SETTLE_NANOS = 3_000_000_000L;
     private static final long MEASURE_NANOS = 10_000_000_000L;
@@ -44,6 +46,10 @@ public final class DlssBenchmark {
 
     /** Minecraft.runTick, every frame. */
     public static void frame() {
+        if (NO_DLSS && DlssConfig.enabled && Minecraft.getInstance().level != null) {
+            DlssConfig.enabled = false;
+            IrisDlss.LOGGER.info("Iris DLSS: off for this session (-Diris-dlss.devNoDlss)");
+        }
         if (!ENABLED || mode >= MODES.length) {
             return;
         }
