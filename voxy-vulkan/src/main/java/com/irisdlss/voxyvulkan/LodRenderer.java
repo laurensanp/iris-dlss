@@ -25,6 +25,7 @@ import me.cortex.voxy.common.world.WorldEngine;
 import me.cortex.voxy.commonImpl.WorldIdentifier;
 import net.caffeinemc.mods.sodium.client.render.chunk.ChunkRenderMatrices;
 import net.caffeinemc.mods.sodium.client.render.viewport.CameraTransform;
+import net.caffeinemc.mods.sodium.client.util.FogParameters;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -42,7 +43,7 @@ import org.lwjgl.system.MemoryUtil;
 public final class LodRenderer {
 
     private static final String NAMESPACE = "voxy-vulkan";
-    private static final int INFO_SIZE = new Std140SizeCalculator().putMat4f().putVec4().get();
+    private static final int INFO_SIZE = new Std140SizeCalculator().putMat4f().putVec4().putVec4().putVec4().get();
     /** Meshes uploaded per frame at most (keeps frame times even while a world loads). */
     private static final int UPLOADS_PER_FRAME = 48;
 
@@ -52,6 +53,8 @@ public final class LodRenderer {
         layout(std140) uniform LodInfo {
             mat4 ProjView;
             vec4 Params; // x: vanilla render distance (blocks), y: daylight
+            vec4 FogColor;
+            vec4 FogRange; // environmental start/end, render distance start/end
         };
         layout(push_constant) uniform Section {
             vec4 Offset; // section corner relative to the camera
@@ -74,7 +77,12 @@ public final class LodRenderer {
         layout(std140) uniform LodInfo {
             mat4 ProjView;
             vec4 Params;
+            vec4 FogColor;
+            vec4 FogRange;
         };
+        float linearFog(float distance, float start, float end) {
+            return clamp((distance - start) / max(end - start, 1e-4), 0.0, 1.0);
+        }
         layout(location = 0) in vec4 vertexColor;
         layout(location = 1) in vec3 relativePos;
         layout(location = 0) out vec4 fragColor;
@@ -87,7 +95,12 @@ public final class LodRenderer {
             float block = floor(light / 16.0);
             float sky = light - block * 16.0;
             float level = max(sky * Params.y, block) / 15.0;
-            fragColor = vec4(vertexColor.rgb * mix(0.12, 1.0, level), 1.0);
+            vec3 color = vertexColor.rgb * mix(0.12, 1.0, level);
+            // Same fog as the terrain: spherical for the environment, cylindrical for the render distance.
+            float spherical = length(relativePos);
+            float cylindrical = max(length(relativePos.xz), abs(relativePos.y));
+            float fog = max(linearFog(spherical, FogRange.x, FogRange.y), linearFog(cylindrical, FogRange.z, FogRange.w));
+            fragColor = vec4(mix(color, FogColor.rgb, fog * FogColor.a), 1.0);
         }
         """;
 
@@ -123,13 +136,21 @@ public final class LodRenderer {
     private static LodScheduler scheduler;
     private static final Long2ObjectOpenHashMap<GpuMesh> meshes = new Long2ObjectOpenHashMap<>();
     private static int frames;
+    private static long lastLog;
+    /** Where the LODs end (blocks), 0 while none are drawn; the distance fog moves out to it. */
+    private static float lodFogEnd;
     private static boolean loggedProjection;
 
     private LodRenderer() {
     }
 
+    /** The distance fog's end while LODs are drawn, else 0 (FogRenderer, every frame). */
+    public static float fogEnd() {
+        return engine != null ? lodFogEnd : 0.0F;
+    }
+
     /** Sodium's opaque terrain pass, after Sodium's draws. */
-    public static void render(RenderPass pass, ChunkRenderMatrices matrices, CameraTransform camera) {
+    public static void render(RenderPass pass, ChunkRenderMatrices matrices, CameraTransform camera, FogParameters fog) {
         if (failed || inIrisShadowPass()) {
             return;
         }
@@ -155,7 +176,9 @@ public final class LodRenderer {
         engine.markActive();
 
         double vanillaRadius = minecraft.options.getEffectiveRenderDistance() * 16.0;
-        scheduler.update(camera.x, camera.y, camera.z, vanillaRadius, config.sectionRenderDistance * (32 << WorldEngine.MAX_LOD_LAYER));
+        double lodRadius = config.sectionRenderDistance * (32 << WorldEngine.MAX_LOD_LAYER);
+        lodFogEnd = (float) lodRadius;
+        scheduler.update(camera.x, camera.y, camera.z, vanillaRadius, lodRadius);
         upload();
         long[] selection = scheduler.selection();
         if (++frames % 120 == 0) {
@@ -166,11 +189,23 @@ public final class LodRenderer {
         }
 
         int maxQuads = 0;
+        long totalQuads = 0;
+        int drawn = 0;
         for (long key : selection) {
             GpuMesh mesh = meshes.get(key);
             if (mesh != null && mesh.quads() > maxQuads) {
                 maxQuads = mesh.quads();
             }
+            if (mesh != null && mesh.quads() > 0) {
+                totalQuads += mesh.quads();
+                drawn++;
+            }
+        }
+        long now = System.currentTimeMillis();
+        if (now - lastLog > 10_000) {
+            lastLog = now;
+            VoxyVulkan.LOGGER.info("Voxy Vulkan: {} sections selected, {} meshed, {} drawn with {} quads, fog {}..{}",
+                selection.length, meshes.size(), drawn, totalQuads, fog.renderStart(), fog.renderEnd());
         }
         if (maxQuads == 0) {
             return;
@@ -184,6 +219,8 @@ public final class LodRenderer {
             ByteBuffer data = Std140Builder.onStack(stack, INFO_SIZE)
                 .putMat4f(projection(matrices.projection()).mul(matrices.modelView()))
                 .putVec4((float) Math.max(0.0, vanillaRadius - 16.0), daylight, 0.0F, 0.0F)
+                .putVec4(fog.red(), fog.green(), fog.blue(), fog.alpha())
+                .putVec4(fog.environmentalStart(), fog.environmentalEnd(), fog.renderStart(), fog.renderEnd())
                 .get();
             int alignment = RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment();
             info = RenderSystem.getDevice().createCommandEncoder().transientMemory()
@@ -315,7 +352,8 @@ public final class LodRenderer {
         }
     }
 
-    private static void shutdown() {
+    /** Voxy shuts its instance down (leaving the world, quitting): free everything and release the world. */
+    public static void shutdown() {
         if (scheduler != null) {
             scheduler.close();
             scheduler = null;

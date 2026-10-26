@@ -28,7 +28,7 @@ public class DefaultChunkRendererMixin {
         TerrainRenderPass terrainPass, CameraTransform camera, FogParameters fog, boolean indexed, RenderPass pass,
         GpuSampler sampler, GpuBufferSlice slice, GpuBuffer buffer, OitStage oit, CallbackInfo ci) {
         if (terrainPass == DefaultTerrainRenderPasses.SOLID && VoxyVulkan.isVulkan()) {
-            LodRenderer.render(pass, matrices, camera);
+            LodRenderer.render(pass, matrices, camera, fog);
         }
     }
 }

@@ -50,8 +50,15 @@ final class LodScheduler {
             thread.setPriority(Thread.MIN_PRIORITY);
             return thread;
         });
-        // A changed section is meshed again the next time it is selected.
-        engine.setDirtyCallback((section, flags, neighbours) -> this.requested.remove(section.key));
+        // A changed section, and its neighbours (their border faces depend on it), are meshed again the next
+        // time they are selected.
+        engine.setDirtyCallback((section, flags, neighbours) -> {
+            this.requested.remove(section.key);
+            for (int[] d : LodMesher.DIRECTIONS) {
+                this.requested.remove(WorldEngine.getWorldSectionId(section.lvl, section.x + d[0], section.y + d[1],
+                    section.z + d[2]));
+            }
+        });
         this.selector = new Thread(this::selectLoop, "Voxy Vulkan selector");
         this.selector.setDaemon(true);
         this.selector.start();
@@ -179,8 +186,21 @@ final class LodScheduler {
             } finally {
                 section.release();
             }
-            this.results.add(new Result(key, LodMesher.mesh(voxels, WorldEngine.getLevel(key), this.engine.getMapper(),
-                this.colors)));
+            int level = WorldEngine.getLevel(key);
+            long[][] slabs = new long[6][];
+            for (int face = 0; face < 6; face++) {
+                int[] d = LodMesher.DIRECTIONS[face];
+                WorldSection neighbour = this.engine.acquireIfExists(level, WorldEngine.getX(key) + d[0],
+                    WorldEngine.getY(key) + d[1], WorldEngine.getZ(key) + d[2]);
+                if (neighbour != null) {
+                    try {
+                        slabs[face] = LodMesher.slab(neighbour._unsafeGetRawDataArray(), face);
+                    } finally {
+                        neighbour.release();
+                    }
+                }
+            }
+            this.results.add(new Result(key, LodMesher.mesh(voxels, slabs, level, this.engine.getMapper(), this.colors)));
         } catch (RuntimeException e) {
             this.requested.remove(key);
             VoxyVulkan.LOGGER.error("Voxy Vulkan: meshing {} failed", WorldEngine.pprintPos(key), e);

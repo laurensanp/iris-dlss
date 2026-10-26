@@ -6,9 +6,12 @@
   "compatibilityLevel": "JAVA_25",
   "client": [
     "DefaultChunkRendererMixin",
+    "FogRendererMixin",
     "MinecraftMixin",
+    "SpriteContentsAccessor",
     "VoxyClientMixin",
-    "VoxyConfigMixin"
+    "VoxyConfigMixin",
+    "VoxyInstanceMixin"
   ],
   "injectors": {
     "defaultRequire": 1
