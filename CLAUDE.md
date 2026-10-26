@@ -156,9 +156,16 @@ Progress, in the fork:
   mapping id: light bits 56-63, biome 47-55, block 27-46; child bit `WorldSection.getChildIndex(cx, cy, cz)`.
   Verified at render distance 8 (noon + midnight screenshots, ~210 fps rendered, 1280x720, DLSS+FG). Dev test:
   move `fabric/run/mods-voxy/*` (Voxy, Fabric API, voxy-vulkan jar) into `fabric/run/mods`, `shaderPack=` empty,
-  lower `renderDistance` after one run at 32 (Voxy only has LODs of chunks it ingested). Open: dark lines on water
-  at section borders, near-black faces without light info, no fog, map colours instead of textures, shadow pass
-  skipped; stage 2 = Solas' voxy programs.
+  lower `renderDistance` after one run at 32 (Voxy only has LODs of chunks it ingested).
+  Stage 1 polish (2026-10-27): faces get their colour from the block model's texture (average of the sprite's
+  first frame via `SpriteContentsAccessor`, top/bottom/side) times the biome tint (`BlockColors` tint sources through
+  a proxy `BlockAndTintGetter` of one biome; water = biome water colour, 80 %); meshing reads the six neighbouring
+  sections' facing layers (border faces and their light correct); surface voxels get side "skirts" on section
+  borders and water is unshaded, so steps between LOD levels don't show as dark lines; vanilla's distance fog is
+  pushed out to the LOD range (`FogRendererMixin`, 60-100 % of `sectionRenderDistance * 512`) and the LOD shader
+  applies the same fog; the world reference is released in `VoxyInstance.shutdown` (else Voxy force-closes worlds).
+  Log line every 10 s: sections selected/meshed/drawn, quads, fog range. Meshing the first ring takes a few seconds
+  (use `-PtestTicks=400+` for screenshots). Still open: shadow pass skipped; stage 2 = Solas' voxy programs.
 - The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
 - `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
   files, recreate it from the description above if missing.
