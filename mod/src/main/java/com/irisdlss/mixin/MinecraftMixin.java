@@ -2,6 +2,7 @@ package com.irisdlss.mixin;
 
 import com.irisdlss.DevScreens;
 import com.irisdlss.DlssBenchmark;
+import com.irisdlss.FrameStats;
 import com.irisdlss.VulkanPresenter;
 import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
@@ -15,6 +16,7 @@ public class MinecraftMixin {
     /** Frame start, before mouse and keyboard are processed: the low-latency wait goes here. */
     @Inject(method = "runTick", at = @At("HEAD"))
     private void irisdlss$frameStart(boolean advanceGameTime, CallbackInfo ci) {
+        FrameStats.frame();
         VulkanPresenter.frameStart();
         DlssBenchmark.frame();
         DevScreens.frame();

@@ -72,6 +72,6 @@ public final class DlssNative {
     /** Debug: PNGs of the generated and real frame of the next `frames` frame-generated presents. */
     public static native void debugCapture(int frames, String dir);
 
-    /** {shown fps, frame generation multiplier in the last second (0 = did not run), thread error (0/1), rendered fps, mean / stddev / worst ms between shown frames, latency ms}. */
+    /** {shown fps, frame generation multiplier in the last second (0 = did not run), thread error (0/1), rendered fps, mean / stddev / worst ms between shown frames, latency ms, 1% low of shown frames (fps)}. */
     public static native float[] presenterStats();
 }

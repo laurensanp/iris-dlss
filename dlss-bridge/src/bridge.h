@@ -142,6 +142,7 @@ IRISDLSS_API void irisdlss_debug_capture(int32_t frames, const wchar_t* dir);
 // stats[0] = frames shown per second (generated ones included), [1] = the frame generation multiplier
 // (2..4) if it ran in the last second, else 0, [2] = 1 if the presenter thread hit an error (see last_message), [3] = frames the
 // game renders per second, [4] = mean time between shown frames (ms), [5] = its standard deviation
-// (ms), [6] = the longest gap (ms), [7] = latency from irisdlss_present to the real frame's present (ms).
-enum { IRISDLSS_STATS_COUNT = 8 };
+// (ms), [6] = the longest gap (ms), [7] = latency from irisdlss_present to the real frame's present (ms),
+// [8] = 1% low of shown frames over the last 5 seconds (fps).
+enum { IRISDLSS_STATS_COUNT = 9 };
 IRISDLSS_API void irisdlss_presenter_stats(float stats[IRISDLSS_STATS_COUNT]);

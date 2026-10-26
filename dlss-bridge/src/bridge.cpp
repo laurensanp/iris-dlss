@@ -10,6 +10,7 @@
 #include <nvsdk_ngx_helpers_vk.h>
 #include <nvsdk_ngx_helpers_dlssg_vk.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -17,6 +18,7 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -883,6 +885,10 @@ struct Presenter {
     std::atomic<float> jitterMs{0.0f};
     std::atomic<float> worstMs{0.0f};
     std::atomic<float> latencyMs{0.0f};
+    // 1% low of shown frames: intervals of the last kLowWindow seconds (presenter thread).
+    static constexpr double kLowWindow = 5.0;
+    std::deque<std::pair<double, double>> lowIntervals;  // (shown at, interval)
+    std::atomic<float> lowFps{0.0f};
     uint64_t presentId = 0;  // last VkPresentIdKHR (presenter thread)
 
     // Frame start pacing (low latency): when the presenter last took a job, how long a presenter
@@ -1141,6 +1147,11 @@ void markShown(double shown) {
         timing.intervalSqSum += interval * interval;
         timing.intervalMax = interval > timing.intervalMax ? interval : timing.intervalMax;
         timing.intervals++;
+        auto& low = g_present.lowIntervals;
+        low.emplace_back(shown, interval);
+        while (!low.empty() && shown - low.front().first > Presenter::kLowWindow) {
+            low.pop_front();
+        }
     }
     timing.lastShow = shown;
 }
@@ -1278,6 +1289,20 @@ void recordLatency(double queued) {
             g_present.worstMs = static_cast<float>(timing.intervalMax * 1000.0);
         }
         g_present.latencyMs = static_cast<float>(timing.latencySum / timing.latencies * 1000.0);
+        // 1% low: the mean of the slowest 1% of intervals (at least one) as frames per second.
+        std::vector<double> intervals;
+        for (const auto& entry : g_present.lowIntervals) {
+            intervals.push_back(entry.second);
+        }
+        if (!intervals.empty()) {
+            size_t count = intervals.size() / 100 > 0 ? intervals.size() / 100 : 1;
+            std::partial_sort(intervals.begin(), intervals.begin() + count, intervals.end(), std::greater<double>());
+            double sum = 0.0;
+            for (size_t i = 0; i < count; i++) {
+                sum += intervals[i];
+            }
+            g_present.lowFps = sum > 0.0 ? static_cast<float>(count / sum) : 0.0f;
+        }
         double lastShow = timing.lastShow;
         timing = Timing{};
         timing.lastShow = lastShow;
@@ -1738,6 +1763,8 @@ IRISDLSS_API void irisdlss_presenter_destroy() {
     g_present.refreshPeriod = 0.0;
     g_present.refreshChecked = 0.0;
     g_present.timing = Timing{};
+    g_present.lowIntervals.clear();
+    g_present.lowFps = 0.0f;
     if (g_present.timer) {
         CloseHandle(g_present.timer);
         g_present.timer = nullptr;
@@ -2080,6 +2107,7 @@ IRISDLSS_API void irisdlss_presenter_stats(float stats[IRISDLSS_STATS_COUNT]) {
     stats[5] = g_present.jitterMs;
     stats[6] = g_present.worstMs;
     stats[7] = g_present.latencyMs;
+    stats[8] = g_present.lowFps;
 }
 
 IRISDLSS_API void irisdlss_shutdown() {
