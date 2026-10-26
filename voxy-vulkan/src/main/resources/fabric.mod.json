@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "voxy-vulkan",
+  "version": "${version}",
+  "name": "Voxy Vulkan",
+  "description": "Draws Voxy's LODs on Minecraft's Vulkan renderer. Uses the installed Voxy for its LOD data and ingest; the drawing is this mod's own.",
+  "authors": [
+    "laurensanp"
+  ],
+  "contact": {
+    "sources": "https://github.com/laurensanp/iris-dlss",
+    "issues": "https://github.com/laurensanp/iris-dlss/issues"
+  },
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.irisdlss.voxyvulkan.VoxyVulkan"
+    ]
+  },
+  "mixins": [
+    "voxy-vulkan.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.20.1",
+    "minecraft": "26.3",
+    "voxy": "0.2.20-beta",
+    "sodium": "*"
+  }
+}
