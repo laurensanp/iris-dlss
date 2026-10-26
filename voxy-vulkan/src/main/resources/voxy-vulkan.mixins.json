@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.irisdlss.voxyvulkan.mixin",
+  "plugin": "com.irisdlss.voxyvulkan.VoxyVulkanMixinPlugin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "DefaultChunkRendererMixin",
+    "MinecraftMixin",
+    "VoxyClientMixin",
+    "VoxyConfigMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

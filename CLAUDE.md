@@ -141,6 +141,24 @@ Progress, in the fork:
   OpenGL in a controlled dev scene (pack behaviour, lava noise is time-dependent); `enableDebugOptions=true`
   breaks Solas because debug mode keeps unused functions with undeclared uniforms (upstream behaviour).
   Gradle: JDK is in `~/.jdks/jdk-25.0.4.1+1` (set `JAVA_HOME`); `--no-daemon` avoids the daemon connection failures.
+- **M4 Voxy, stage 1 done (2026-10-27): own mod `voxy-vulkan/` in this repo** (MIT, Gradle project like `mod/`,
+  needs `libs/voxy-0.2.20-beta.jar` + the Sodium jar to compile; Voxy is never packed or committed). Voxy's jar
+  stays unchanged; its CPU side (storage RocksDB, ingest, `WorldEngine`/`WorldSection`/`Mapper`) is used as is:
+  `VoxyVulkanMixinPlugin.postApply` turns off Voxy's `instanceof VulkanBackend` device check (our empty
+  `MinecraftMixin` has priority 2000 so Voxy's wrapper is merged first), `VoxyClientMixin` replaces
+  `initVoxyClient` on Vulkan (GL capability checks + GL index buffer) by just `setInstanceFactory(VoxyClientInstance::new)`,
+  `VoxyConfigMixin` makes `isRenderingEnabled` false so Voxy's GL renderer is never created. Own renderer:
+  `LodScheduler` (selector thread: quadtree levels 4..0 by distance, skips sections fully inside the vanilla
+  render distance; 2 mesher threads), `LodMesher` (per-face quads, POSITION_COLOR, map colours, Voxy light byte:
+  high nibble block, low nibble sky), `LodRenderer` (drawn at the end of Sodium's SOLID pass in
+  `DefaultChunkRenderer.render`, one draw per section with a push-constant offset, projection with infinite far
+  plane, fragments inside the vanilla distance discarded). Voxy section voxel index `y<<10|z<<5|x` (32^3),
+  mapping id: light bits 56-63, biome 47-55, block 27-46; child bit `WorldSection.getChildIndex(cx, cy, cz)`.
+  Verified at render distance 8 (noon + midnight screenshots, ~210 fps rendered, 1280x720, DLSS+FG). Dev test:
+  move `fabric/run/mods-voxy/*` (Voxy, Fabric API, voxy-vulkan jar) into `fabric/run/mods`, `shaderPack=` empty,
+  lower `renderDistance` after one run at 32 (Voxy only has LODs of chunks it ingested). Open: dark lines on water
+  at section borders, near-black faces without light info, no fog, map colours instead of textures, shadow pass
+  skipped; stage 2 = Solas' voxy programs.
 - The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
 - `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
   files, recreate it from the description above if missing.

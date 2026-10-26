@@ -12,3 +12,6 @@ libs/
 *.lib
 *.pdb
 .idea/
+voxy-vulkan/build/
+voxy-vulkan/.gradle/
+voxy-vulkan/run/
