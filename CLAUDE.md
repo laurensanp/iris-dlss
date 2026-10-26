@@ -214,7 +214,10 @@ method` in the Gradle output instead.
 - Multi frame generation (2026-10-26): setting "Generated frames" 2x/3x/4x (`frameGenMultiplier`), values
   limited to the GPU's `DLSSG.MultiFrameCountMax` (`irisdlss_frame_generation_max`, 4060 Ti: 2x only, option
   greyed out). One DLSS-G evaluate per generated frame (`multiFrameCount`/`multiFrameIndex`; the SDK struct
-  defaults are 1/1, 0 fails with InvalidParameter). 3x/4x untested (needs RTX 50).
+  defaults are 1/1, 0 fails with InvalidParameter). 3x/4x verified 2026-10-26 in a friend's log (RTX 50, Lunar,
+  4K output, DLSS Quality 2560x1440, Solas): "Frame Generation x4", 125 shown from 33 rendered. Without VSync the
+  generated frames are paced unevenly (pacing 8.0±7.3 ms at x4); his 1% lows came from 50-400 ms frame hitches
+  (Lunar's "Pause - Unknown" lines), not from the presenter.
 - `-PdlssDebug=spin|walk` turns on this mod's capture/motion debugging; its frame captures only fire when
   Frame Generation runs.
 
