@@ -218,6 +218,10 @@ method` in the Gradle output instead.
   4K output, DLSS Quality 2560x1440, Solas): "Frame Generation x4", 125 shown from 33 rendered. Without VSync the
   generated frames are paced unevenly (pacing 8.0±7.3 ms at x4); his 1% lows came from 50-400 ms frame hitches
   (Lunar's "Pause - Unknown" lines), not from the presenter.
+  Pacing fix (2026-10-26): generated + real frames are spread over the game's frame interval in both modes;
+  with VSync they used to go out back to back at the refresh rate and then pause (bursts when the game renders
+  slower than refresh / (generated + 1)). Test: dev `maxFps:30`, VSync, 2x: 16.8±10.8 ms -> 16.8±3.0 ms,
+  shown 1% low 28 -> 41, latency +10 ms. `-PtestTicks=900` keeps the test world open 45 s.
 - `-PdlssDebug=spin|walk` turns on this mod's capture/motion debugging; its frame captures only fire when
   Frame Generation runs.
 
