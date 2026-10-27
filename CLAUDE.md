@@ -118,7 +118,10 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 ## Releases
 
 `"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jar> -R laurensanp/iris-dlss --prerelease` (gh is
-logged in as laurensanp). Next release: `version` in `mod/build.gradle` (0.7.0 = first with Vitrail), README notes.
+logged in as laurensanp). v0.7.0 (2026-10-27, first with Vitrail): `iris-dlss-0.7.0+mc26.3.jar` +
+`voxy-vulkan-0.1.1+mc26.3.jar`; Vitrail is never attached (link to Modrinth + `tools/PatchVitrail.java` for Lunar).
+v0.5.0/v0.6.0 notes start with an "Outdated, needs the archived fork" line. Next release: bump `version` in
+`mod/build.gradle` (and `voxy-vulkan/build.gradle` if it changed), README notes, keep the asset names.
 
 ## Working with the user
 
