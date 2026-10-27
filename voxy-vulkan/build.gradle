@@ -2,7 +2,7 @@ plugins {
 	id 'net.fabricmc.fabric-loom' version "1.19-SNAPSHOT"
 }
 
-version = "0.1.0+mc26.3"
+version = "0.1.1+mc26.3"
 group = "com.irisdlss"
 
 dependencies {
