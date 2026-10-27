@@ -65,7 +65,12 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   fork jar and iris-dlss 0.6.0 removed, `voxy-0.2.20-beta.jar` / `voxy-vulkan-*.jar` renamed `.disabled`, Solas
   `BLOOM=true` (was false; with DOF on Vitrail can't compile composite14 otherwise), `vitrail/pack.txt` selects
   Solas. Old files in `mods-backup-2026-10-27-vitrail/`. Same setup tested in dev with Lunar's Sodium 0.9.3-beta.1;
-  not yet started in Lunar itself.
+  First Lunar start crashed: Lunar's mixin `lunar$maybeBarrier` and Vitrail's `VulkanCommandEncoderMixin.vitrail$afterPass`
+  both @Redirect `memoryBarrier` in `VulkanCommandEncoder.submitRenderPass` (critical injection failure, no error
+  handler can catch it). Fix: `tools/PatchVitrail.java` (ASM) drops Vitrail's @Redirect (it only narrows the barrier
+  after Vitrail's own passes); Lunar now has `vitrail-0.13.0-beta+mc26.3-lunarfix.jar` (patched jar in `../vitrail-dl`,
+  local only, never publish). Patched jar tested in dev (pack draws, no errors); waiting for the next Lunar start.
+  Could be reported to Vitrail (use @WrapOperation instead of @Redirect); ask the user first.
 
 ## Build & test
 
