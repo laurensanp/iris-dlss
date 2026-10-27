@@ -153,8 +153,8 @@ render thread, block texture colours with biome tint, fog pushed out to the LOD 
   programs; this work is paused. Vitrail supports Distant Horizons instead.
 * LODs cast no shadows.
 
-Install: Voxy 0.2.20-beta (Modrinth, needs Fabric API) and `voxy-vulkan-*.jar` (attached to the 0.6.0
-release, experimental) in `mods/`. Voxy is All-Rights-Reserved: voxy-vulkan contains none of its code and
+Install: Voxy 0.2.20-beta (Modrinth, needs Fabric API) and `voxy-vulkan-*.jar` (attached to the
+[releases](https://github.com/laurensanp/iris-dlss/releases), experimental) in `mods/`. Voxy is All-Rights-Reserved: voxy-vulkan contains none of its code and
 is only built against it.
 
 ## Performance
