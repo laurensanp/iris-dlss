@@ -1380,17 +1380,15 @@ void presenterLoop() {
         // frame. With VSync each also waits until it is on screen (at least one refresh); showing them
         // back to back at the refresh rate instead would burst when the game renders slower than
         // refresh / (generated + 1) and then pause until its next frame.
+        // Without VSync the game has its next frame queued almost always; the real frame used to go out
+        // right after the generated one then (as if the presenter were behind), 2 ms / 7 ms at 2x. It now
+        // always waits for its slot, a little short of it so the presenter keeps up with the game.
         bool shown = waitRendered(job.value);
         double start = now();
         double spacing = g_present.frameInterval.load() / (job.generated + 1);
         for (int i = 0; shown && i <= job.generated; i++) {
-            bool backlog;
-            {
-                std::lock_guard<std::mutex> lock(g_present.mutex);
-                backlog = !g_present.jobs.empty();
-            }
-            if (i > 0 && !backlog) {
-                sleepUntil(start + spacing * i);
+            if (i > 0) {
+                sleepUntil(start + spacing * i * 0.9);
             }
             bool real = i == job.generated;
             uint64_t id = showImage(real ? slot.real : slot.interp[i], job.value);
