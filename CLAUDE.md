@@ -57,6 +57,20 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   -XX:+DisableAttachMechanism, but `jstat -gc <pid>` works). Not a drop: "1 fps shown, ~12-18 rendered, pacing
   1000 ms" = window in the background, throttled by Lunar's dynamic-fps mod.
 
+- **Frame pacing without VSync fixed (2026-10-27, `fd1f0cc`)**: PresentMon (Intel, `../presentmon`, needs admin:
+  `capture-lunar.bat` as administrator records javaw.exe 60 s) in Lunar, 2x FG, 165 Hz, no VSync: frames go out as
+  "Hardware: Legacy Flip", none dropped, but generated/real came in 2.0 / 7.3 ms pairs (15 % visible only 0-2 ms).
+  The presenter skipped the real frame's wait whenever the game's next frame was queued (always without VSync).
+  Now it always waits 90 % of its slot: Lunar 5.5 / 6.0 ms pairs, 1 % below 2 ms. Two other approaches (minimum gap
+  across frames, spacing by game work time) collapsed to ~15 fps (presenter wait feeds back into the game's frame
+  interval), don't retry them.
+- **Vertex buffer churn fixed (`abfbfc5`)**: `StagedVertexBufferPoolMixin` keeps recycled vanilla vertex buffers
+  (GUI, entities, particles) up to 120 frames instead of closing them each frame (with the presenter the GPU is ~2
+  frames behind, so fences rarely signalled in time): dev ~2400 buffers / 600 MB per 10 s -> 6 / 4 MB. Lunar's
+  remaining FPS drops were full video memory: render distance 32 (~3.8 GB Sodium) + Discord Clips (+ its capture in
+  dwm, ~1.5 GB); user turned Discord Clips off. `diagnosticRecording=true` logs GPU allocations by label plus VMA and
+  process memory every 10 s (`GpuAllocationStats`).
+
 ## Lunar Client
 
 - The user plays in Lunar, profile `~/.lunarclient/profiles/surv` (Fabric 26.3; Lunar's Sodium 0.9.3-beta.1,
