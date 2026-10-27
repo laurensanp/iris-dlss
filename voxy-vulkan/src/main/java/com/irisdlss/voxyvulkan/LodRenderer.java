@@ -16,9 +16,7 @@ import com.mojang.renderpearl.api.pipeline.ShaderType;
 import com.mojang.renderpearl.api.pipeline.UniformType;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
+
 import java.nio.ByteBuffer;
 import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.common.world.WorldEngine;
@@ -129,8 +127,6 @@ public final class LodRenderer {
     private static RenderPipeline pipeline;
     private static CompiledRenderPipeline compiled;
     private static boolean failed;
-    private static MethodHandle irisShadowPass;
-    private static boolean irisChecked;
 
     private static WorldEngine engine;
     private static LodScheduler scheduler;
@@ -152,13 +148,10 @@ public final class LodRenderer {
 
     /** Sodium's opaque terrain pass, after Sodium's draws. */
     public static void render(RenderPass pass, ChunkRenderMatrices matrices, CameraTransform camera, FogParameters fog) {
-        // With a shader pack the pass is Iris' gbuffers pass: LODs need the pack's Voxy program there (stage 2,
-        // not done); drawing them with this pipeline would not match its attachments.
-        packActive = IrisLods.packActive();
-        if (packActive) {
-            IrisLods.data(); // dev: -Dvoxy-vulkan.dumpPatch=true logs the pack's Voxy patch once
-        }
-        if (failed || packActive || inIrisShadowPass()) {
+        // With a shader pack (Vitrail) the pass draws into the pack's targets, and its shadow pass runs this
+        // pass too: LODs would need the pack's own programs there (not done), so they stay off.
+        packActive = ShaderPacks.active();
+        if (failed || packActive) {
             return;
         }
         VoxyConfig config = VoxyConfig.CONFIG;
@@ -336,25 +329,6 @@ public final class LodRenderer {
         } catch (RuntimeException e) {
             failed = true;
             VoxyVulkan.LOGGER.error("Voxy Vulkan: LOD pipeline failed, LODs stay off", e);
-            return false;
-        }
-    }
-
-    /** Iris' shadow pass also runs Sodium's terrain pass; LODs stay out of the shadow map for now. */
-    private static boolean inIrisShadowPass() {
-        if (!irisChecked) {
-            irisChecked = true;
-            try {
-                Class<?> state = Class.forName("net.irisshaders.iris.shadows.ShadowRenderingState");
-                irisShadowPass = MethodHandles.publicLookup().findStatic(state, "areShadowsCurrentlyBeingRendered",
-                    MethodType.methodType(boolean.class));
-            } catch (ReflectiveOperationException e) {
-                irisShadowPass = null;
-            }
-        }
-        try {
-            return irisShadowPass != null && (boolean) irisShadowPass.invokeExact();
-        } catch (Throwable e) {
             return false;
         }
     }

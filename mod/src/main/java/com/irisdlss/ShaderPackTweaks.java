@@ -19,8 +19,8 @@ import java.util.zip.ZipFile;
 
 /**
  * A shader pack's own TAA on top of DLSS jitters and blends a second time: the image gets soft and
- * smeary. Before Iris loads the pack, switch its TAA option off in the pack's settings file
- * (shaderpacks/&lt;pack&gt;.txt), the same file Iris' shader pack screen writes.
+ * smeary. Before the shader mod (Vitrail, or Iris) loads the pack, switch its TAA option off in the
+ * pack's settings file (shaderpacks/&lt;pack&gt;.txt), the same file their shader pack screens write.
  */
 public final class ShaderPackTweaks {
 

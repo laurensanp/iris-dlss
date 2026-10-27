@@ -1,289 +1,110 @@
-# Iris DLSS Bridge + Iris/Voxy Vulkan port
+# Iris DLSS Bridge
 
-Two codebases, side by side:
+One repository (github.com/laurensanp/iris-dlss, MIT): a Fabric mod for Minecraft 26.3 that runs DLSS Super
+Resolution + Frame Generation inside the game's own Vulkan renderer (RenderPearl). Shader packs come from
+**Vitrail** (separate mod, modrinth `vitrail-shaders`, github avpbynf/Vitrail-Shaders, LGPL-3.0, not ours,
+never commit or ship it). `README.md` lists everything a player or developer needs and where it comes from.
 
-- **this repo** (`iris-dlss`, github.com/laurensanp/iris-dlss): Fabric mod for Minecraft 26.3 that runs
-  DLSS Super Resolution + Frame Generation inside the game's own Vulkan renderer (RenderPearl).
-  Done and working (0.5.0, released). See `README.md`.
-- **the Iris fork** (github.com/laurensanp/iris-vulkan, cloned next to this repo as `../iris-vulkan`;
-  upstream github.com/IrisShaders/Iris branch `26.3`): porting Iris shader packs to Vulkan so they run
-  together with DLSS. Plan and milestones are in `docs/vulkan-port.md`. **Read that first.**
-  Branches: `vulkan-m2` = current work and GitHub default (M1-M3). Cleaned up 2026-10-27: `vulkan-m1` (contained
-  in m2) deleted; the first separate attempt (own SPIR-V compiler, never rendered) is only the tag
-  `archive/vulkan-first-attempt` now.
-  (`iris-vulkan` is also recorded in this repo as a bare gitlink without `.gitmodules`; work in the
-  separate clone, not through that entry.)
+Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. Voxy LODs (voxy-vulkan) paused.
 
-Goal in the end: Iris shader packs (Solas, Complementary) + Voxy LODs + DLSS SR/FG, all on Vulkan.
+| Path | What |
+|---|---|
+| `dlss-bridge/` | native C++ bridge (`irisdlss.dll`): NGX, DLSS SR, presenter + DLSS-G, `dlss_probe.exe` |
+| `mod/` | the Fabric mod (Java), packs the bridge + NVIDIA DLLs into its jar |
+| `voxy-vulkan/` | separate mod: Voxy LODs drawn on Vulkan (paused) |
+| `testpacks/` | own small GLSL test packs (from the old Iris port) |
+| `libs/` (ignored) | compile-only jars: `sodium-fabric-0.9.2+mc26.3.jar`, `voxy-0.2.20-beta.jar` (Modrinth) |
+| `mod/run/` (ignored) | test game dir: Sodium, Fabric API, Vitrail in `mods/`, packs, `saves/vulkan-test`, `vitrail/pack.txt` |
 
-## Status (2026-10-26)
+## History
 
-Milestones from `docs/vulkan-port.md`: M1 composite/final on Vulkan, M2 gbuffers, M3 shadows/compute/
-rest, M4 Voxy (own renderer; Voxy is All-Rights-Reserved, don't modify or ship its code).
+- Until 2026-10-27 shader packs ran through an own Vulkan port of Iris (github.com/laurensanp/iris-vulkan,
+  LGPL, milestones M1-M3 done: gbuffers, shadows, compute, SSBOs, custom images, geometry/tessellation).
+  Replaced by Vitrail on 2026-10-27 (5-10 % faster, same picture, maintained by others); the fork's GitHub repo
+  is archived, the local clone and the submodule are gone. Releases iris-dlss v0.5.0/v0.6.0 and iris-vulkan
+  vulkan-v0.1.0/v0.2.0 belong to that era.
+- History of iris-dlss keeps Kiwious' Claude co-author lines (user decided not to rewrite).
 
-Progress, in the fork:
+## Status (2026-10-27)
 
-- Done and verified in game (screenshot): with the `VulkanTest` pack on Vulkan + Sodium + DLSS SR, the
-  vanilla world renders correctly, the pack's composite pass swaps red/blue and its final pass draws
-  the 8px border from `viewWidth`/`viewHeight`. So composite/final programs compile through RenderPearl,
-  get their uniform block and samplers, and render over the world.
-- How M1 hands the world to the pack: on Vulkan `Iris.isPackInUseQuick()` is false (world set up as
-  without a pack: vanilla vertex formats, no gbuffers swap, Sodium COMPACT format), and
-  `IrisRenderingPipeline.copyMainColorIntoColortex0` copies the main target into colortex0 before
-  deferred and composite. M2 replaces exactly these pieces.
-- **M1 done (verified):** Solas 3.8 (from Modrinth, in `fabric/run/shaderpacks`, select with
-  `shaderPack=Solas Shader V3.8.zip`) runs its whole deferred/composite/final chain on Vulkan over the
-  vanilla world with DLSS SR, ~116 fps in the 854x480 dev window, no errors. Only log warnings left:
-  compute `shadowcomp`, custom 3D images (voxel flood-fill light; stubbed to read zero). Solas'
-  lighting looks "flat" because its gbuffers data (normals, materials) only exists after M2.
-- M1 pieces worth knowing: sampler/UBO lists come from SPIR-V reflection (`VulkanProgram.reflectBindings`,
-  RenderPearl wants the layout to match the SPIR-V exactly); colortex0 is filled by a blit when formats
-  differ; render targets have full mip chains (`VulkanDraw.generateMipmaps`, passes write mip 0 views);
-  3D samplers / images are replaced by zero-returning stubs in `VulkanTransformer`; compute programs are
-  skipped via `VulkanUnsupported.computeSkipped`.
-- **M2 (gbuffers) done, branch `vulkan-m2`.** `Iris.isPackInUseQuick()` is true on Vulkan again,
-  `copyMainColorIntoColortex0` is gone. Verified with the `VulkanTest` pack (gbuffers_basic/textured/terrain
-  writing colortex0+1): Sodium terrain, particles and hand draw with the pack's programs, block.properties
-  IDs work. Design (`vulkan/VulkanGbuffers`): GL Iris rebinds its framebuffer before each draw, Vulkan can't,
-  so world render passes into the main target are redirected to all gbuffer colortex buffers (union of the
-  programs' DRAWBUFFERS) + main depth (`MixinFrontendCommandEncoder_Gbuffers`), and every `setPipeline` in
-  such a pass is swapped for a variant built for those attachments (`MixinFrontendRenderPass_Gbuffers`):
-  the pack program (`VulkanProgram.compileGbuffer`: original pipeline's vertex layout/depth/cull/blend,
-  outputs moved to their DRAWBUFFERS attachment, vertex inputs matched by name, unmatched ones stubbed) or,
-  without one, the original shaders writing colortex0. `VulkanTransformer` gives gbuffers programs
-  vanilla's/Sodium's binding names (DynamicTransforms, Sampler0, u_BlockTex...). Reverse-Z is no issue:
-  this Iris inverts depth in the shader transform (`DepthTransformer`), the `UndoReverseZ*` mixins are off.
-  **Verified with Solas 3.8** (all gbuffers programs compile): terrain, water, sky + clouds, entities,
-  block entities, held items, hand, night sky and rain render with Solas; ~62 fps rendered in the 854x480
-  window (RTX 4060 Ti, DLSS SR + FG). Water reflections match an OpenGL reference shot: GL formats without
-  alpha (RGB16F...) are RGBA on Vulkan, so those targets start with alpha 1 and never get alpha written
-  (`VulkanTextures.keepOpaqueAlpha`; Solas drops reflections where gaux1.a is 0). Vertex inputs declared
-  wider than their element are padded like GL (`VulkanProgram.narrowInputs`). Uniform default values and
-  the horizon box work. A pack without gbuffers draws the world with the original shaders (the Vulkan
-  counterpart of Iris' synthesized fallback programs). Not optimized: per-draw uniform upload.
-  The chequered pattern on distant sand with Solas also shows on OpenGL without DLSS (pack, not port).
-  Fixed 2026-10-25: block textures looked scrambled with Solas (generated normals) because uniforms were
-  uploaded at `setPipeline`, before Sodium binds `u_BlockTex`, so `atlasSize` came from the GUI font
-  texture; `VulkanGbuffers.afterAlbedoBound` re-uploads them. Shows best at sunset (`time set 12300`).
-  Test options: `-PtestCommands="time set 18000;weather rain;tp @p -36 82 18 180 8"` (run after joining;
-  that tp gives the beach view used for GL/Vulkan comparisons), `-PtestPitch=40` (negative looks up).
-  OpenGL reference shot: `enabled=false` in `config/iris-dlss.properties` + `preferredGraphicsBackend:"opengl"`
-  in `options.txt`, then restore both. `VulkanTestPost` pack: composite/final only, no gbuffers.
-- **Complementary Reimagined r5.9.3 runs** on Vulkan (2026-10-25): needed the fallback texture created
-  outside render passes, a Vulkan PBR sampler, and `tex` mapped to the albedo binding (`VulkanTransformer`).
-- Other packs (2026-10-25, Modrinth downloads in `fabric/run/shaderpacks`): Complementary Unbound, BSL,
-  MakeUp Ultra Fast run. Photon, Bliss, Sildur's still fail to compile (set aside by the user; focus is
-  Solas); Rethinking Voxels needs CUSTOM_IMAGES/SSBO/COMPUTE (M3). Test script idea: set `shaderPack=` in
-  `fabric/run/config/iris.properties`, run the test world, grep the log.
-  `enableDebugOptions=true` (dumps `fabric/run/patched_shaders`) makes Solas' deferred1 fail
-  (`colortex5` undeclared with SSAO=false); keep it false otherwise.
-- Lunar Client: its "Multi-Threaded Rendering" acquires/presents the swapchain itself (mixins on
-  `FrontendGpuSurface.acquireNextTexture` / `VulkanGpuSurface.present`), so the DLSS presenter (and FG)
-  can't run; the mod detects it, keeps the game's output and says so in the status line.
-  Its setting is `decoupledPresent` in `~/.lunarclient/settings/game/<profile>/performance.json`
-  (`{"version":38,"decoupledPresent":false}` turns it off; edit only while Lunar's game is closed, it
-  writes the file back). Detection verified in real Lunar 2026-10-26. The user plays
-  in Lunar (`~/.lunarclient/profiles/surv`). Presenting from both swapchains stalls in fullscreen.
-  Dev tests: `fullscreen:false` in `fabric/run/options.txt`, else a focus change minimizes the
-  window and Minecraft caps it at 10 fps (looks like a presenter stall).
-- Releases (public, 2026-10-26): iris-dlss `v0.5.0` (`iris-dlss-0.5.0+mc26.3.jar`) and iris-vulkan
-  `vulkan-v0.1.0` (the fork jar renamed to `iris-fabric-vulkan+mc26.3.jar`), both pre-releases, made with
-  `"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jar> -R laurensanp/<repo> --prerelease`
-  (gh is logged in as laurensanp). Next release: bump `version` in `mod/build.gradle`, update the README
-  pack table / "New in" notes, rebuild both jars, keep the asset names. iris-dlss is MIT (`LICENSE`); the
-  `iris-vulkan` gitlink is a real submodule now (`.gitmodules`, branch `vulkan-m2`): after pushing the
-  fork, point it at the new commit (`git update-index --cacheinfo 160000,<sha>,iris-vulkan`). The local
-  `iris-dlss/iris-vulkan` folder is a stale plain copy, keep working in `../iris-vulkan`.
-- Installing into Lunar (`~/.lunarclient/profiles/surv`, only while its game isn't running; check with
-  the java processes, the launcher may stay open): fork `gradlew :fabric:build` -> `build/libs/iris-fabric-*.jar`
-  (repo root, not `fabric/build`), copied over `mods/iris-fabric-vulkan+mc26.3.jar`; `mod/build/libs/iris-dlss-*.jar`
-  over `mods/iris-dlss-0.4.0+mc26.3.jar` (same names, no duplicates). Back up the old jars first
-  (`mods-backup-<date>/`). Last install 2026-10-26 21:57 (fork `423a6a77f`, cape fix; previous jar in `mods-backup-2026-10-26-capes/`). The mods folder now holds `iris-dlss-0.5.0+mc26.3.jar`. Lunar's Sodium is
-  0.9.3-beta.1 (dev: 0.9.2), it also has ImmediatelyFast, entityculling, dynamic-fps, Xaero's maps.
-  The user's Solas settings live in `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap
-  tweaks, shadowMapResolution 4096) and compile on Vulkan; voxel/floodfill options wait for M3.
-- **M3 shadow pass done (2026-10-26, fork `ee2df74a8`).** Shadow render passes into the main target are
-  redirected like gbuffers (`VulkanGbuffers.redirectShadow`): shadowcolor buffers of all shadow programs'
-  DRAWBUFFERS + shadowtex0, render area = shadow resolution. Shadow variants reverse the pipeline's depth test
-  (shadow map is forward depth, cleared to 1; the world is reverse-Z) and don't cull, like GL Iris'
-  `MixinGlCommandEncoder`/`MixinGlRenderPipeline`. Draws without a shadow program write depth only.
-  shadowtex1 = copy of shadowtex0 before translucents; shadowcomp fullscreen passes run (`renderAllVulkan`).
-  `sampler2DShadow` -> `sampler2D` + `iris_shadow_*` functions doing LEQUAL compare with 2x2 PCF on texelFetch
-  (`VulkanTransformer.emulateShadowSamplers`). Verified against GL reference shots (view
-  `time set 1500;weather clear;tp @p -36 84 18 -90 20`, trees casting shadows): Solas 3.8 and Complementary
-  Reimagined (hardware shadow samplers) match. Not done: depth mipmaps (shadowtex\*Mipmap), geometry shaders.
-- **M3 rest done (2026-10-26, fork up to `6a9563928`)**, all raw Vulkan from Java (LWJGL) on RenderPearl's
-  command buffer: RenderPearl keeps every image in GENERAL layout and puts a full barrier after each pass
-  (`VulkanRaw`). Compute = shaderc pipelines, push descriptors set 0 (every descriptor renumbered, else
-  unused samplers collide at binding 0), dispatched between full barriers (`VulkanCompute`). Storage
-  images + SSBOs in descriptor set 1, one binding per image name / SSBO index (`VulkanStorage`,
-  `VulkanTransformer.bindStorage`), hidden from RenderPearl reflection, added to its pipeline layouts
-  (`MixinSPIRVModule_Storage`, `MixinVulkanRenderPipeline_Storage`, `MixinVulkanRenderPass_Storage`). 1D/3D
-  textures = RenderPearl textures retargeted by mixins (`MixinVulkanGpuTexture_Dimension`); SSBOs = VMA
-  buffers (`VulkanBuffers`); raw custom textures converted from GL layouts (`VulkanTextures.createFromPixels`).
-  Geometry/tessellation stages added at vkCreateGraphicsPipelines (`VulkanStages`). Device features
-  (vertex/fragment stores, geometry, tessellation) enabled in `MixinVulkanBackend_Features`. Colour space
-  conversion: `VulkanColorSpaceConverter`. >8 gbuffer buffers: per-phase attachment sets learned at runtime.
-  Verified against GL shots (`-PdlssOff` = Vulkan without DLSS): Solas flood-fill coloured light (white
-  room test: `fill -66 100 10 -54 108 26 white_concrete hollow` + light blocks, tp -64 101 18 -90 15),
-  Rethinking Voxels, Photon, Bliss, Complementary; Sildur's runs. RV with DLSS on is noisy (DLSS jitter vs
-  its denoiser, not a port bug).
-  Dev: `-PvkDebug=nocompute,noclear`, GPU crash checkpoints name raw passes in crash reports; Gradle daemon
-  connection fails often right after a build, just rerun.
-- Depth mipmaps work (`VulkanDepthMipmaps`, 2x2 texelFetch average: filtered reads of the depth view returned 0;
-  own test pack `fabric/run/shaderpacks/VulkanTestMip` shows shadowtex0 mip 0 left / mip 4 right).
-- Open: arrays of images, perf check vs before M3. **First Lunar test of the M3 build (2026-10-26) found two bugs,
-  see `docs/issues/2026-10-26-lunar-m3.md`:** shadows bright at night (screenshot there), and ~10 fps on a
-  server because Lunar's capes throw on every shadow-pass player submit (log spam, ~10k stack traces). History of iris-dlss keeps Kiwious' Claude co-author lines (user decided not to rewrite).
-  Grep the log for `Not supported on Vulkan yet` and `ignored GlStateManager.` to see what a pack hits.
-  Follow-up 2026-10-26 evening (in the issue file): cape fix in fork `423a6a77f`; night patches and lava match
-  OpenGL in a controlled dev scene (pack behaviour, lava noise is time-dependent); `enableDebugOptions=true`
-  breaks Solas because debug mode keeps unused functions with undeclared uniforms (upstream behaviour).
-  Gradle: JDK is in `~/.jdks/jdk-25.0.4.1+1` (set `JAVA_HOME`); `--no-daemon` avoids the daemon connection failures.
-- **M4 Voxy, stage 1 done (2026-10-27): own mod `voxy-vulkan/` in this repo** (MIT, Gradle project like `mod/`,
-  needs `libs/voxy-0.2.20-beta.jar` + the Sodium jar to compile; Voxy is never packed or committed). Voxy's jar
-  stays unchanged; its CPU side (storage RocksDB, ingest, `WorldEngine`/`WorldSection`/`Mapper`) is used as is:
-  `VoxyVulkanMixinPlugin.postApply` turns off Voxy's `instanceof VulkanBackend` device check (our empty
-  `MinecraftMixin` has priority 2000 so Voxy's wrapper is merged first), `VoxyClientMixin` replaces
-  `initVoxyClient` on Vulkan (GL capability checks + GL index buffer) by just `setInstanceFactory(VoxyClientInstance::new)`,
-  `VoxyConfigMixin` makes `isRenderingEnabled` false so Voxy's GL renderer is never created. Own renderer:
-  `LodScheduler` (selector thread: quadtree levels 4..0 by distance, skips sections fully inside the vanilla
-  render distance; 2 mesher threads), `LodMesher` (per-face quads, POSITION_COLOR, map colours, Voxy light byte:
-  high nibble block, low nibble sky), `LodRenderer` (drawn at the end of Sodium's SOLID pass in
-  `DefaultChunkRenderer.render`, one draw per section with a push-constant offset, projection with infinite far
-  plane, fragments inside the vanilla distance discarded). Voxy section voxel index `y<<10|z<<5|x` (32^3),
-  mapping id: light bits 56-63, biome 47-55, block 27-46; child bit `WorldSection.getChildIndex(cx, cy, cz)`.
-  Verified at render distance 8 (noon + midnight screenshots, ~210 fps rendered, 1280x720, DLSS+FG). Dev test:
-  move `fabric/run/mods-voxy/*` (Voxy, Fabric API, voxy-vulkan jar) into `fabric/run/mods`, `shaderPack=` empty,
-  lower `renderDistance` after one run at 32 (Voxy only has LODs of chunks it ingested).
-  Stage 1 polish (2026-10-27): faces get their colour from the block model's texture (average of the sprite's
-  first frame via `SpriteContentsAccessor`, top/bottom/side) times the biome tint (`BlockColors` tint sources through
-  a proxy `BlockAndTintGetter` of one biome; water = biome water colour, 80 %); meshing reads the six neighbouring
-  sections' facing layers (border faces and their light correct); surface voxels get side "skirts" on section
-  borders and water is unshaded, so steps between LOD levels don't show as dark lines; vanilla's distance fog is
-  pushed out to the LOD range (`FogRendererMixin`, 60-100 % of `sectionRenderDistance * 512`) and the LOD shader
-  applies the same fog; the world reference is released in `VoxyInstance.shutdown` (else Voxy force-closes worlds).
-  Log line every 10 s: sections selected/meshed/drawn, quads, fog range. Meshing the first ring takes a few seconds
-  (use `-PtestTicks=400+` for screenshots). Still open: shadow pass skipped; stage 2 = Solas' voxy programs.
-  Installed in Lunar 2026-10-27: `voxy-0.2.20-beta.jar` re-enabled (was `.jar.disabled`) + `voxy-vulkan-0.1.0+mc26.3.jar`
-  (backup `mods-backup-2026-10-27-voxy/`); Lunar's Sodium 0.9.3-beta.1 has the same `DefaultChunkRenderer.render`
-  signature. Lunar also has `nofog` and `voxy-server-side`. Stage 2 plan: `docs/voxy-vulkan-stage2.md`.
-  With a shader pack active the LODs are skipped (else the pipeline lands in Iris' redirected gbuffers pass and
-  RenderPearl throws "color attachment count must match"); `-Dvoxy-vulkan.dumpPatch=true` logs the pack's Voxy
-  patch as Voxy prepared it (`IrisLods`). voxy-vulkan compiles against the fork jar (`iris_jar`).
-- Releases 2026-10-27: iris-dlss `v0.6.0` (+ `voxy-vulkan-0.1.0+mc26.3.jar` attached, experimental) and iris-vulkan
-  `vulkan-v0.2.0` (M3). Lunar now has `iris-dlss-0.6.0+mc26.3.jar` (the old file name is gone; backup in
-  `mods-backup-2026-10-27-release/`). In Lunar Client it still drops to low FPS after some Playtime. After some time its back to normal. fix this next.
-- **Vitrail as alternative to the fork (2026-10-27).** Vitrail (modrinth `vitrail-shaders`, github avpbynf/Vitrail-Shaders,
-  LGPL-3.0, own engine, not Iris) runs OptiFine packs on the 26.3 Vulkan renderer and works with iris-dlss as is:
-  it draws the world into the main target (reverse-Z depth kept), takes the projection the game draws with (our
-  jitter included), runs composite/final before our upscale at `FogRenderer.endFrame`. Verified in `mod/run`
-  (Sodium, Fabric API, `vitrail-0.13.0-beta+mc26.3.jar`; Iris jar in `mods-disabled/`, no Voxy) with Solas: DLSS SR +
-  FG x2 work, motion vectors/hand correct in an FG capture. Changes: `VitrailRenderScaleMixin` (`@Pseudo`) makes
-  Vitrail's own Render Scale (FSR 1, swaps main target textures) read 100 % while DLSS runs; `ShaderPackTweaks`
-  reads Vitrail's `vitrail/pack.txt` (`pack=`, `enabled=`, `renderscale=`; Vitrail shares `shaderpacks/<pack>.txt`);
-  own test harness in iris-dlss for runs without the fork: `cd mod && gradlew runClient -PtestWorld=vulkan-test
-  [-PtestCommands=... -PtestPitch -PtestTicks -PwindowSize -PdlssBenchmark -PdlssOff]`, screenshot
-  `mod/run/screenshots/dlss-test.png`. Vitrail picks the pack with `I`. Benchmark 1080p, same Solas settings and view:
-  Vitrail ~5-10 % faster than the fork (SR+FG 122 vs 115, Quality 176 vs 161, Perf 217 vs 196, DLAA 123 vs 114, off
-  146 vs 133); end screenshots near identical, but Vitrail's hand is too bright at night. Vitrail fails the whole
-  pack when one program doesn't compile; Solas with `SSAO=false` (deferred1, colortex5) or `DOF=true`+`BLOOM=false`
-  (composite14, gbufferProjectionInverse) breaks, because it doesn't drop unused functions like Iris does. The user's
-  Lunar Solas settings have `BLOOM=false`+`DOF=true` -> would not draw on Vitrail 0.13.0. Not done: Lunar install,
-  Voxy with Vitrail (Vitrail supports Distant Horizons), report the Solas issue upstream. Vitrail source clone:
-  `../vitrail-src`, jar: `../vitrail-dl`. The fork's `fabric/run/mods` has no Voxy now (`mods-disabled-2026-10-27/`).
-- The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
-- `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
-  files, recreate it from the description above if missing.
+- **DLSS with Vitrail works** (Vitrail 0.13.0-beta, Solas 3.8, verified with screenshots, an FG capture and a
+  benchmark): Vitrail draws the world into the main target (reverse-Z depth kept), takes the projection the game
+  draws with (our jitter included) and runs composite/final before our upscale at `FogRenderer.endFrame`.
+  iris-dlss changes for it: `VitrailRenderScaleMixin` (`@Pseudo`, Vitrail's own FSR "Render Scale" reads 100 %
+  while DLSS runs; logged once), `ShaderPackTweaks` reads `vitrail/pack.txt` (`pack=`, `enabled=`,
+  `renderscale=`, `shadowdistance=`, `shadowmapscale=`; old files: one bare word, `none` = off) and the shared
+  `shaderpacks/<pack>.txt`. Pack screen: key `I`.
+- Vitrail drops the whole pack when one program doesn't compile (it doesn't remove unused functions like Iris):
+  Solas with `SSAO=false` (deferred1, colortex5) or `DOF=true`+`BLOOM=false` (composite14,
+  gbufferProjectionInverse). Log: `(Vitrail) <program> did not compile, nothing of this pack will be drawn`.
+  Vitrail's hand is too bright at night. Could be reported upstream (ask the user first).
+- Benchmark 2026-10-27, 1080p, Solas, render distance 8, static view, 4060 Ti, rendered fps: SR+FG 122 (245 shown),
+  Quality 176, Performance 217, DLAA 123, off 146 (old fork in the same scene: 115/161/196/114/133).
+- voxy-vulkan (paused): stage 1 (no shader pack) works; with a pack active the LODs are skipped
+  (`ShaderPacks.active()` = Vitrail's `PackChain.drawingPack()` by reflection). Design: Voxy's CPU side used as is;
+  `VoxyVulkanMixinPlugin.postApply` turns off Voxy's Vulkan device check and its GL Iris hook, `VoxyClientMixin`
+  replaces `initVoxyClient`, `VoxyConfigMixin` keeps Voxy's GL renderer off; own `LodScheduler`/`LodMesher`/
+  `LodRenderer` drawn at the end of Sodium's SOLID pass, fog pushed out (`FogRendererMixin`). Section voxel index
+  `y<<10|z<<5|x`, mapping id: light bits 56-63, biome 47-55, block 27-46. Voxy is All-Rights-Reserved: never pack
+  or modify its code.
+- **Open:** in Lunar the FPS drops after some playtime and recovers later (seen with the old fork build); check
+  whether it still happens with Vitrail.
 
-## Fork design (Iris on Vulkan)
+## Lunar Client
 
-Iris above `net.irisshaders.iris.gl` talks in GL ints (program ids, uniform locations, texture ids
-behind `IntSupplier`). We keep those ints and swap only the leaves when `IrisVulkan.isActive()`:
-
-| GL concept                            | Vulkan replacement (package `net.irisshaders.iris.vulkan`)                                                                                                         |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| texture names                         | `VulkanTextures` id table (Iris targets + game textures via `MixinGpuTexture2.iris$getGlId`)                                                                       |
-| `glBindTexture`/`glBindSampler` units | `VulkanUnits` tables                                                                                                                                               |
-| sampler objects                       | `VulkanSamplers` (params -> RenderPearl `GpuSampler`)                                                                                                              |
-| program objects                       | `VulkanProgram` (GLSL kept, pipelines compiled lazily per attachment formats + blend)                                                                              |
-| uniform location                      | std140 byte offset in the generated `IrisUniforms` block; samplers = `SAMPLER_LOCATION_BASE + i`                                                                   |
-| framebuffers                          | `GlFramebuffer` only records attachments on Vulkan; `VulkanDraw.fullscreen` opens render passes                                                                    |
-| `GlStateManager.*`                    | every public method returns immediately on Vulkan (ASM guard `VulkanGlGuardTransformer`, applied from `IrisMixinPlugin.postApply`); ignored calls logged once each |
-
-Shader side: `VulkanTransformer` (runs last in `TransformPatcher`) moves all loose uniforms of all stages
-into one `IrisUniforms` block, gives vertex inputs locations, renames `gl_VertexID`/`gl_InstanceID`;
-upstream's `LayoutTransformer` (now enabled on Vulkan) gives varyings locations.
-
-Rules:
-
-- New GL call sites get a Vulkan branch in the leaf (IrisRenderSystem, GlFramebuffer, ...), not in callers.
-- Direct LWJGL GL calls (`GL11C.gl*`, `GL46C.gl*`) **abort the JVM** on Vulkan ("No context is current"),
-  so they must be guarded. `GlStateManager` calls are already safe (guard).
-- Features we can't run yet: call `VulkanUnsupported.once("...")` and skip, don't fail the pack.
-- RenderPearl limits: only vertex + fragment stages (no geometry/tessellation), no compute, no storage
-  images/SSBOs, no sampler compare mode (hardware shadows). These need raw Vulkan through a native layer
-  like `dlss-bridge` (M3).
-- On Vulkan the depth buffer is reverse-Z, 0..1 (see README); Iris' `UndoReverseZ*` mixins are GL-only.
-- `IrisMixinPlugin`: on Vulkan all mixins apply except `VKOnly*`; it treats "iris-dlss installed with
-  `enabled` not false in `config/iris-dlss.properties`" as Vulkan, because this mod forces Vulkan.
+- The user plays in Lunar, profile `~/.lunarclient/profiles/surv` (Fabric 26.3; Lunar's Sodium 0.9.3-beta.1,
+  Fabric API, Mod Menu, ImmediatelyFast, entityculling, dynamic-fps, Xaero's maps, nofog, voxy-server-side).
+- Install only while Lunar's game isn't running (check the java processes, the launcher may stay open). Back up
+  the mods folder first (`mods-backup-<date>-<what>/`), then replace jars with the same names, no duplicates.
+- Lunar's "Multi-Threaded Rendering" (`decoupledPresent` in `~/.lunarclient/settings/game/<profile>/performance.json`)
+  acquires/presents the swapchain itself; the mod detects it and keeps the game's output (no FG). Must be off
+  (`{"version":38,"decoupledPresent":false}`, edit only while the game is closed). Presenting from both swapchains
+  stalls in fullscreen.
+- The user's Solas settings: `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap tweaks).
 
 ## Build & test
 
-- Gradle needs **JDK 25** (`JAVA_HOME`); Gradle downloads one into `~/.gradle/jdks`.
-- This mod: `dlss-bridge/fetch-deps.ps1`, `dlss-bridge/build.bat` (MSVC 2022, Build Tools are enough),
-  then `cd mod && gradlew build`. Needs `libs/sodium-fabric-0.9.2+mc26.3.jar` (copy from the Gradle cache
-  after building the fork once).
-- Fork: `gradlew :fabric:build` (jar in `build/libs`), `gradlew :fabric:runClient`.
-- Test loop in the fork: copy `mod/build/libs/iris-dlss-*.jar` into `../iris-vulkan/fabric/run/mods/`, then
-  `gradlew :fabric:runClient -PtestWorld=vulkan-test`: joins (first time: creates, fixed seed) the world,
-  saves `fabric/run/screenshots/vulkan-test.png` after 200 ticks and quits (mixins in `mixin/vulkan/`).
-  Look at the screenshot. `fabric/run/config/iris.properties` `shaderPack=VulkanTest` selects the test pack
-  in `fabric/run/shaderpacks/VulkanTest` (composite swaps red/blue, final draws an 8px red border from
-  `viewWidth`/`viewHeight`; both must show up when M1 works). `shaderPack=` (empty) = no pack.
-- Pipeline creation failures are caught by Iris ("Failed to create shader rendering pipeline") and logged
-  with a stack trace in `fabric/run/logs/latest.log`; fatal GL calls show up as `FATAL ERROR in native
-method` in the Gradle output instead.
-- Benchmark: `-PtestWorld=vulkan-test -PdlssBenchmark -PwindowSize=1920x1080` (fork) cycles SR+FG, SR Quality,
-  SR Performance, DLAA, off through `DlssConfig` (`DlssBenchmark`, not the settings UI, config file not written)
-  and logs `Iris DLSS benchmark:` lines with rendered/shown fps. Solas, 1080p, static view, 4060 Ti (2026-10-25):
-  SR+FG 92 rendered/180 shown, SR Quality 142, SR Performance 145, DLAA 80, off 104.
-  Not CPU-bound (JFR, 2026-10-26): the render thread mostly waits in RenderPearl's `submit` for the frame
-  before last (GPU-bound) and in the presenter's `frameStart`. DLSS SR preset K itself costs ~2 ms at
-  1080p on the 4060 Ti (DLAA vs off), FG ~3 ms per rendered frame; render distance 32 -> 12 lifts
-  Performance from 145 to 170. Preset E (CNN, added as an option) is ~1 ms cheaper than K. Preset L (12, second-gen
-  transformer, added too) is ~1.8 ms more expensive than K at Quality (104 -> 87 fps in one run).
-  Preset M (13) at Performance ~0.9 ms more than K. Mode "Custom" (render scale 33-100 %) creates DLSS
-  with that size and the closest NGX mode (`Quality.ngxMode`); 80 % = 1536x864 works.
-  Settings UI (2026-10-26): Sodium pages "Settings" / "Advanced" (`SodiumOptions`, options grey out via
-  `setEnabledProvider`) and the Mod Menu screen (`DlssSettingsScreen`, same options in sections);
-  performance overlay in the HUD (`HudMixin`, setting `overlay`). Screenshot them with the fork's
-  `-PdlssScreen=mod|sodium|sodium2` (opens the screen after joining, `DevScreens`).
-  Dev `options.txt` has `inactivityFpsLimit:"minimized"`, else the AFK limit (30 fps) hits long benchmarks. Run the
-  benchmark with nothing else loading the PC (numbers swing ~25 % between runs otherwise).
-  Logs written across midnight get lost (log roll), rerun then.
-- Multi frame generation (2026-10-26): setting "Generated frames" 2x/3x/4x (`frameGenMultiplier`), values
-  limited to the GPU's `DLSSG.MultiFrameCountMax` (`irisdlss_frame_generation_max`, 4060 Ti: 2x only, option
-  greyed out). One DLSS-G evaluate per generated frame (`multiFrameCount`/`multiFrameIndex`; the SDK struct
-  defaults are 1/1, 0 fails with InvalidParameter). 3x/4x verified 2026-10-26 in a friend's log (RTX 50, Lunar,
-  4K output, DLSS Quality 2560x1440, Solas): "Frame Generation x4", 125 shown from 33 rendered. Without VSync the
-  generated frames are paced unevenly (pacing 8.0±7.3 ms at x4); his 1% lows came from 50-400 ms frame hitches
-  (Lunar's "Pause - Unknown" lines), not from the presenter.
-  Pacing fix (2026-10-26): generated + real frames are spread over the game's frame interval in both modes;
-  with VSync they used to go out back to back at the refresh rate and then pause (bursts when the game renders
-  slower than refresh / (generated + 1)). Test: dev `maxFps:30`, VSync, 2x: 16.8±10.8 ms -> 16.8±3.0 ms,
-  shown 1% low 28 -> 41, latency +10 ms. `-PtestTicks=900` keeps the test world open 45 s.
-- `-PdlssDebug=spin|walk` turns on this mod's capture/motion debugging; its frame captures only fire when
-  Frame Generation runs.
+- Gradle needs **JDK 25**: `JAVA_HOME=~/.jdks/jdk-25.0.4.1+1`. Use `--no-daemon`; "Could not connect to the Gradle
+  daemon" happens often, `gradlew --stop` and rerun.
+- Bridge: `dlss-bridge/fetch-deps.ps1`, `dlss-bridge/build.bat` (MSVC 2022, Build Tools are enough). Mod:
+  `cd mod && gradlew build` -> `mod/build/libs/iris-dlss-*.jar`. voxy-vulkan: `cd voxy-vulkan && gradlew build`.
+- Test loop: `cd mod && gradlew runClient -PtestWorld=vulkan-test` joins/creates the world, screenshot
+  `mod/run/screenshots/dlss-test.png` after 200 ticks, quits (`DevTest`, `DevTestWorldMixin`). Options:
+  `-PtestCommands="time set 1500;weather clear;tp @p -36 84 18 -90 20"` (tree/shadow view; `tp @p -36 82 18 180 8`
+  = beach view), `-PtestPitch`, `-PtestTicks=600` (more for screenshots after loading), `-PwindowSize=1920x1080`,
+  `-PdlssBenchmark` (logs `Iris DLSS benchmark:` lines), `-PdlssOff`, `-PdlssDebug=spin|walk` (FG capture into
+  `mod/run/iris-dlss/captures`, only fires with Frame Generation). Look at the screenshot.
+- Dev `options.txt`: `fullscreen:false` (else a focus change minimizes and caps at 10 fps),
+  `inactivityFpsLimit:"minimized"` (else the 30 fps AFK limit hits benchmarks). Run benchmarks with nothing else
+  loading the PC (±25 %). Logs written across midnight get lost (log roll), rerun.
+- Voxy dev test: move `mod/run/mods-voxy/*` (Voxy) plus voxy-vulkan's jar into `mod/run/mods`, no shader pack,
+  one run at render distance 32 so Voxy ingests, then lower it. `-PtestTicks=400+` (meshing takes seconds).
+- OpenGL reference shot: `enabled=false` in `config/iris-dlss.properties` + `preferredGraphicsBackend:"opengl"` in
+  `options.txt` (Vitrail: `vitrail/graphics-api.txt`), then restore.
 
-## Hardware
+## DLSS notes
 
-- DLSS Frame Generation needs an RTX 40/50 card. On an RTX 3070 (one of the two dev machines) SR works,
-  FG fails with `NVSDK_NGX_Result_FAIL_UnableToInitializeFeature` - expected, not a bug. Verify FG on the
-  RTX 40+ machine; `dlss-bridge/out/dlss_probe.exe` reports SR/FG availability without the game.
+- Two main targets swapped in `GameRendererMixin`: world into a DLSS-sized one, GUI into a window-sized one.
+  Jitter in `CameraMixin` -> `DlssUpscaler.applyJitter`; world depth copied before the hand pass; motion vectors
+  camera-only from depth. Depth is reverse-Z (`DepthConvention`).
+- Benchmark costs (4060 Ti, 1080p): DLSS SR preset K ~2 ms, FG ~3 ms per rendered frame; E ~1 ms cheaper than K,
+  L ~1.8 ms more, M ~0.9 ms more at Performance. Mode Custom (33-100 %) uses the closest NGX mode. Render-thread
+  time goes to waiting in RenderPearl's `submit` (GPU-bound) and the presenter's `frameStart`.
+- Settings UI: Sodium pages "Settings"/"Advanced" (`SodiumOptions`) and Mod Menu screen (`DlssSettingsScreen`);
+  overlay in the HUD (`HudMixin`). Screenshot them with `-PdlssScreen=mod|sodium|sodium2` (`DevScreens`).
+- Multi frame generation: 2x/3x/4x (`frameGenMultiplier`), limited to the GPU's `DLSSG.MultiFrameCountMax`
+  (4060 Ti: 2x only). One DLSS-G evaluate per generated frame. Frames are paced evenly over the game's frame
+  interval with and without VSync. 3x/4x verified in a friend's log (RTX 50, Lunar).
+- Hardware: FG needs RTX 40/50; on the RTX 3070 dev machine FG fails with
+  `NVSDK_NGX_Result_FAIL_UnableToInitializeFeature` (expected). `dlss-bridge/out/dlss_probe.exe` reports SR/FG.
+
+## Releases
+
+`"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jar> -R laurensanp/iris-dlss --prerelease` (gh is
+logged in as laurensanp). Next release: `version` in `mod/build.gradle` (0.7.0 = first with Vitrail), README notes.
 
 ## Working with the user
 
-- Verify every milestone with frame captures/screenshots, as described above.
-- Ask before pushing, and before cloning/downloading third-party code (shader packs too: Solas and
-  Complementary are free to download but not ours to redistribute).
+- Verify every change with screenshots/frame captures as above.
+- Ask before pushing (memory: verified work may be committed and pushed right away), and before downloading
+  third-party code (shader packs too: Solas, Complementary are free to download but not ours to redistribute).

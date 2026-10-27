@@ -16,8 +16,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Dev option -Diris-dlss.testWorld=name (same as the Iris fork's test harness, for runs without it,
- * e.g. with Vitrail): joins that singleplayer world from the title screen (first time: creates it,
+ * Dev option -Diris-dlss.testWorld=name: joins that singleplayer world from the title screen (first time: creates it,
  * creative, fixed seed). The rest of the test runs in {@link com.irisdlss.DevTest}.
  */
 @Mixin(TitleScreen.class)

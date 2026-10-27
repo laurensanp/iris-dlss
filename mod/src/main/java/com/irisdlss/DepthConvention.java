@@ -6,10 +6,9 @@ import org.joml.Matrix4f;
 /**
  * Which depth the main depth buffer holds.
  *
- * <p>Vanilla 26.3 renders reverse-Z (near = 1). Shader packs don't change that on Vulkan: the only
- * Iris that runs packs there (the Vulkan fork) keeps the reverse-Z depth buffer and flips depth for
- * the pack inside its shader transform (DepthTransformer); the old UndoReverseZ mixins that switched
- * the buffer to classic depth are off. So DLSS always gets reverse-Z depth and vanilla's projection.
+ * <p>Vanilla 26.3 renders reverse-Z (near = 1). Shader packs don't change that on Vulkan: Vitrail
+ * keeps drawing the world in reverse-Z and only converts the depth copies it hands the pack. So DLSS
+ * always gets reverse-Z depth and vanilla's projection.
  */
 public final class DepthConvention {
 

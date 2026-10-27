@@ -1,57 +1,70 @@
 # Iris DLSS Bridge (Minecraft 26.3, Fabric)
 
 NVIDIA **DLSS Super Resolution** and **DLSS Frame Generation** for Minecraft 26.3, running inside the
-game's own Vulkan renderer, together with **Iris shader packs** on Vulkan (through the
-[iris-vulkan](https://github.com/laurensanp/iris-vulkan) fork of Iris).
+game's own Vulkan renderer, together with **shader packs on Vulkan** through
+[Vitrail](https://modrinth.com/mod/vitrail-shaders).
 
 Status: **experimental**, personal project, Windows + NVIDIA only. Tested on an RTX 4060 Ti (driver 617,
 Windows 11) with Solas 3.8. Bug reports welcome in the [issues](https://github.com/laurensanp/iris-dlss/issues).
 
+(The name is historical: until 0.6.0 shader packs ran through an own Vulkan port of Iris,
+[iris-vulkan](https://github.com/laurensanp/iris-vulkan), now archived. Vitrail replaces it.)
+
 ## Contents
 
-* [Requirements](#requirements)
+* [What you need](#what-you-need)
 * [Install (players)](#install-players)
 * [Lunar Client](#lunar-client)
 * [Settings](#settings)
-* [Shader packs on Vulkan](#shader-packs-on-vulkan)
-* [Voxy LODs on Vulkan](#voxy-lods-on-vulkan)
+* [Shader packs (Vitrail)](#shader-packs-vitrail)
+* [Voxy LODs on Vulkan (paused)](#voxy-lods-on-vulkan-paused)
 * [Performance](#performance)
 * [Troubleshooting](#troubleshooting)
 * [Build from source (developers)](#build-from-source-developers)
 * [How it works](#how-it-works)
 * [License](#license)
 
-## Requirements
+## What you need
 
 | | |
 |---|---|
 | OS | Windows 10 / 11, 64-bit |
 | GPU | NVIDIA RTX. Super Resolution: RTX 20 or newer. **Frame Generation: RTX 40 / 50 only.** Recent driver. |
 | Game | Minecraft **26.3** with Fabric Loader **0.20.1+** |
-| Mods | [Sodium](https://modrinth.com/mod/sodium) 0.9.2+ for 26.3 (needed for shaders), the **Iris Vulkan fork** (below) for shader packs, or [Vitrail](#alternative-vitrail) instead |
-| Not together with | ResolutionScaler / GGTU or other mods that change the render resolution; regular Iris (use the fork instead) |
+| Not together with | ResolutionScaler / GGTU or other mods that change the render resolution; the old iris-vulkan fork |
+
+Mods, all in `.minecraft/mods/` (or the Lunar profile's `mods/`):
+
+| Mod | Where from | Needed for |
+|---|---|---|
+| `iris-dlss-<version>+mc26.3.jar` (this mod, NVIDIA's DLSS files inside) | [Releases](https://github.com/laurensanp/iris-dlss/releases) | DLSS SR + FG |
+| [Sodium](https://modrinth.com/mod/sodium) 0.9.x for 26.3 | Modrinth | the settings pages, Vitrail |
+| [Vitrail](https://modrinth.com/mod/vitrail-shaders) for 26.3 (tested: 0.13.0-beta) | Modrinth | shader packs on Vulkan |
+| [Fabric API](https://modrinth.com/mod/fabric-api) | Modrinth | Vitrail |
+| [Mod Menu](https://modrinth.com/mod/modmenu) | Modrinth | optional, second settings screen |
+| a shader pack, e.g. [Solas](https://modrinth.com/shader/solas-shader) 3.8 | Modrinth | goes into `shaderpacks/` |
+
+Without Vitrail the mod still runs DLSS on the vanilla picture. According to Vitrail, regular Iris can stay
+installed next to it (Iris draws on OpenGL, Vitrail on Vulkan; this mod starts the game on Vulkan). Not
+tested here.
 
 ## Install (players)
 
 1. Install Fabric Loader for Minecraft 26.3.
-2. Download from the [Releases](https://github.com/laurensanp/iris-dlss/releases) page:
-   * `iris-dlss-<version>+mc26.3.jar` (this mod; NVIDIA's DLSS files are inside)
-   * `iris-fabric-vulkan+mc26.3.jar` (Iris for Vulkan, from
-     [iris-vulkan releases](https://github.com/laurensanp/iris-vulkan/releases)), only if you want shader packs
-3. Put both jars and [Sodium](https://modrinth.com/mod/sodium) into `.minecraft/mods/`. Remove a regular
-   Iris jar if you have one.
-4. Put a shader pack (zip) into `.minecraft/shaderpacks/` and pick it in Video Settings → Shader Packs.
-   [Solas](https://modrinth.com/shader/solas-shader) is the best tested one.
-5. Start the game. It starts on **Vulkan** while DLSS is on (the "Graphics API" option is overridden).
-6. Optional, experimental: Voxy LODs, see [Voxy LODs on Vulkan](#voxy-lods-on-vulkan).
+2. Put the mods from the table above into `mods/`. Remove the old `iris-fabric-vulkan+mc26.3.jar` if you
+   have it.
+3. Put a shader pack (zip) into `shaderpacks/`.
+4. Start the game. It starts on **Vulkan** while DLSS is on (the "Graphics API" option is overridden).
+5. Press **`I`** for Vitrail's shader pack screen and pick the pack (`K` toggles shaders, `R` reloads).
+   Vitrail remembers it in `vitrail/pack.txt`.
 
 Updating: close the game, replace the jars, start again. Your settings stay in
-`config/iris-dlss.properties`.
+`config/iris-dlss.properties`; the pack's settings in `shaderpacks/<pack>.txt`.
 
 ## Lunar Client
 
 Works in Lunar Client profiles that run Fabric for 26.3 (put the jars into the profile's `mods`
-folder while the game is closed).
+folder while the game is closed; Lunar ships its own Sodium, Fabric API and Mod Menu, keep those).
 
 **Turn off Lunar's "Multi-Threaded Rendering"**, otherwise Frame Generation never starts: Lunar then
 acquires and presents the game's frames on its own threads, and the DLSS presenter cannot take over
@@ -87,76 +100,60 @@ apply immediately.
 
 F3 also shows two DLSS lines: render size → output size, and shown / rendered fps, pacing, latency.
 
-## Shader packs on Vulkan
+## Shader packs (Vitrail)
 
-Iris normally needs OpenGL. The [iris-vulkan](https://github.com/laurensanp/iris-vulkan) fork runs packs
-on Minecraft's Vulkan renderer (branch `vulkan-m2`). State on 2026-10-27:
+[Vitrail](https://github.com/avpbynf/Vitrail-Shaders) (LGPL-3.0, by avpbynf) runs OptiFine-format shader
+packs on Minecraft's Vulkan renderer. It is a separate mod, not part of this repository. It works with
+DLSS as it is: it draws the world into the game's main render target (reverse-Z depth kept) with the
+projection the game draws with, so the pack gets DLSS' jittered camera, and its composite/final passes run
+before the upscale. Tested 2026-10-27 with Vitrail 0.13.0-beta and Solas 3.8: SR and Frame Generation
+work, motion vectors and the hand are right.
 
-| Pack | Status |
-|---|---|
-| Solas 3.8 | Runs (best tested), incl. shadows and flood-fill coloured light |
-| Complementary Reimagined / Unbound r5.9.3 | Run, incl. shadows |
-| BSL 10.1.8 | Runs |
-| MakeUp Ultra Fast 9.6 | Runs |
-| Photon 1.4, Bliss 2.1.2 | Run (compared with OpenGL) |
-| Sildur's Vibrant 2.02 | Runs |
-| Rethinking Voxels | Runs; noisy with DLSS on (its denoiser vs DLSS' jitter) |
-
-Since milestone M3 (2026-10-26) the fork has the **shadow pass** (shadow maps, shadowcolor, hardware
-shadow samplers emulated, depth mipmaps), **compute shaders**, **SSBOs**, **custom 1D/2D/3D images**
-(voxel and flood-fill lighting), **geometry and tessellation shaders** and colour space conversion, all on
-Minecraft's Vulkan device. Compared against OpenGL screenshots with Solas, Complementary, Photon, Bliss and
-Rethinking Voxels. Not done yet: arrays of images.
-
-### Alternative: Vitrail
-
-[Vitrail](https://modrinth.com/mod/vitrail-shaders) (LGPL-3.0, by avpbynf) is a separate shader pack engine
-for Minecraft's Vulkan renderer, not based on this fork. It works with this mod instead of the Iris fork:
-put `vitrail-<version>+mc26.3.jar`, Sodium and [Fabric API](https://modrinth.com/mod/fabric-api) into
-`mods/` and **don't install the Iris fork next to it** (both would draw on Vulkan). Pick the pack with `I`
-in game. Tested 2026-10-27 with Vitrail 0.13.0-beta and Solas 3.8: DLSS SR and Frame Generation work, the
-pack gets the jittered camera, motion vectors and the hand are right.
+What this mod adds for Vitrail:
 
 * Vitrail's own **Render Scale** (FSR 1) is ignored while DLSS is on (DLSS already sets the render size).
-* The pack's TAA is switched off for Vitrail too (`disablePackTaa`, Vitrail reads the same
-  `shaderpacks/<pack>.txt` as Iris).
-* Voxy LODs (voxy-vulkan) were not tested with Vitrail. Vitrail supports Distant Horizons instead.
-* Known with Solas 3.8 on Vitrail 0.13.0: `SSAO=false`, or `DOF=true` together with `BLOOM=false`, make a
-  program fail to compile and Vitrail then draws nothing of the pack (Solas uses undeclared uniforms in code
-  that Iris removes as unused). At night the first-person hand is lit too brightly.
-* Speed, 1920x1080, Solas, same view and settings, RTX 4060 Ti (fps rendered): SR Quality + FG 122 vs 115 with
-  the Iris fork, SR Quality 176 vs 161, SR Performance 217 vs 196, DLAA 123 vs 114, DLSS off 146 vs 133.
+* The pack's TAA is switched off (`disablePackTaa`, reads `vitrail/pack.txt` and the pack's
+  `shaderpacks/<pack>.txt`, which Vitrail shares with Iris).
 
-## Voxy LODs on Vulkan
+Known with Solas 3.8 on Vitrail 0.13.0:
+
+* `SSAO=false`, or `DOF=true` together with `BLOOM=false`, make a program fail to compile, and Vitrail then
+  draws nothing of the pack (Solas uses undeclared uniforms in code that Iris removes as unused, Vitrail
+  doesn't). The log says `<program> did not compile, nothing of this pack will be drawn`.
+* At night the first-person hand is lit too brightly.
+
+Vitrail's own compatibility table: [docs/compatibility.md](https://github.com/avpbynf/Vitrail-Shaders/blob/main/docs/compatibility.md).
+
+## Voxy LODs on Vulkan (paused)
 
 [Voxy](https://modrinth.com/mod/voxy) only renders through OpenGL and refuses the Vulkan backend.
-[`voxy-vulkan/`](voxy-vulkan) is a separate small mod (milestone M4) that makes it work on Vulkan without
-changing Voxy: Voxy keeps its storage, LOD import ("ingest") and world engine, its OpenGL renderer is never
-started, and voxy-vulkan draws the LOD sections with an own Vulkan renderer (sections picked by distance,
-meshed off the render thread, block texture colours with biome tint, fog pushed out to the LOD distance).
+[`voxy-vulkan/`](voxy-vulkan) is a separate small mod that makes it work on Vulkan without changing Voxy:
+Voxy keeps its storage, LOD import ("ingest") and world engine, its OpenGL renderer is never started, and
+voxy-vulkan draws the LOD sections with an own Vulkan renderer (sections picked by distance, meshed off the
+render thread, block texture colours with biome tint, fog pushed out to the LOD distance).
 
-State on 2026-10-27:
+* **Without a shader pack: works** (tested 2026-10-27 in a dev world and in Lunar Client).
+* **With a shader pack (Vitrail): LODs are switched off.** Drawing them would need the pack's own
+  programs; this work is paused. Vitrail supports Distant Horizons instead.
+* LODs cast no shadows.
 
-* **Stage 1, without a shader pack: works** (tested in a dev world and installed in Lunar Client).
-* **Stage 2, with a shader pack's Voxy programs (Solas): in progress.** With a pack active the game runs,
-  but the LODs are not drawn yet. Plan: [`docs/voxy-vulkan-stage2.md`](docs/voxy-vulkan-stage2.md).
-* LODs don't cast shadows yet.
-
-Install: Voxy 0.2.20-beta (from Modrinth, needs Fabric API) and `voxy-vulkan-*.jar` in `mods/`, next to
-this mod. `voxy-vulkan-*.jar` is attached to the Iris DLSS Bridge releases (experimental). Voxy is
-All-Rights-Reserved: voxy-vulkan contains none of its code and is only built against it.
+Install: Voxy 0.2.20-beta (Modrinth, needs Fabric API) and `voxy-vulkan-*.jar` (attached to the 0.6.0
+release, experimental) in `mods/`. Voxy is All-Rights-Reserved: voxy-vulkan contains none of its code and
+is only built against it.
 
 ## Performance
 
-Solas 3.8, 1920×1080, render distance 32, RTX 4060 Ti, fps rendered (shown with Frame Generation):
+Solas 3.8, 1920×1080, render distance 8, static view, RTX 4060 Ti, fps rendered (shown with Frame
+Generation), 2026-10-27:
 
 | DLSS off | DLAA | Quality | Performance | Quality + FG |
 |---|---|---|---|---|
-| ~100 | ~80 | ~140 | ~145 | ~90 (~180 shown) |
+| ~146 | ~123 | ~176 | ~217 | ~122 (~245 shown) |
 
-The game is GPU-bound here; DLSS itself costs ~2 ms per frame at 1080p with model K (E is ~1 ms
-cheaper, L ~1.8 ms more), Frame Generation ~3 ms per rendered frame. A lower render distance helps a lot.
-Numbers vary with the scene and with whatever else runs on the PC.
+That is 5–10 % more than the old Iris fork in the same scene. The game is GPU-bound here; DLSS itself costs
+~2 ms per frame at 1080p with model K (E is ~1 ms cheaper, L ~1.8 ms more), Frame Generation ~3 ms per
+rendered frame. A lower render distance helps a lot. Numbers vary with the scene and with whatever else
+runs on the PC.
 
 ## Troubleshooting
 
@@ -164,69 +161,71 @@ Numbers vary with the scene and with whatever else runs on the PC.
   `logs/latest.log` (search for `Iris DLSS`).
 * **Frame Generation stays off / "Presenter starting"**: Lunar's Multi-Threaded Rendering (see above), or
   an RTX 20/30 card (`NVSDK_NGX_Result_FAIL_UnableToInitializeFeature` in the log is expected there).
-* **Shader pack doesn't load**: the log says `Failed to create shader rendering pipeline`; lines with
-  `Not supported on Vulkan yet` list what the pack uses that the port can't do yet.
+* **Shader pack doesn't show**: search the log for `(Vitrail)` lines with `did not compile`; see the
+  Solas notes above. Vitrail's shader screen (`I`) also shows load errors.
 * **Back to OpenGL** (e.g. to compare): set `enabled=false` in `config/iris-dlss.properties` and
-  `preferredGraphicsBackend:"opengl"` in `options.txt`.
+  `preferredGraphicsBackend:"opengl"` in `options.txt` (Vitrail additionally keeps its own choice in
+  `vitrail/graphics-api.txt`).
 * Settings file reference: `config/iris-dlss.properties` (commented, written on every start).
 
 ## Build from source (developers)
+
+Everything that is ours is in this repository. What is not ours is downloaded, never committed:
+
+| Item | Where it goes | Source |
+|---|---|---|
+| NVIDIA DLSS SDK, Vulkan headers | `dlss-bridge/third_party/` | `dlss-bridge/fetch-deps.ps1` (GitHub) |
+| Sodium 0.9.2 jar (compile only) | `libs/sodium-fabric-0.9.2+mc26.3.jar` | [Modrinth](https://modrinth.com/mod/sodium/version/mc26.3-0.9.2-fabric) |
+| Voxy 0.2.20-beta jar (compile only, voxy-vulkan) | `libs/voxy-0.2.20-beta.jar` | [Modrinth](https://modrinth.com/mod/voxy) |
+| Sodium, Fabric API, Vitrail jars (test runs) | `mod/run/mods/` | Modrinth |
+| Shader packs (test runs) | `mod/run/shaderpacks/` | Modrinth (Solas, Complementary, ...) |
 
 Requirements: Windows 10/11, NVIDIA RTX GPU, Visual Studio 2022 or its Build Tools with the C++
 workload, **JDK 25** (Gradle needs it in `JAVA_HOME`), git.
 
 ```bat
-git clone --recursive https://github.com/laurensanp/iris-dlss.git
+git clone https://github.com/laurensanp/iris-dlss.git
 cd iris-dlss\dlss-bridge
 powershell -ExecutionPolicy Bypass -File fetch-deps.ps1   :: NVIDIA DLSS SDK + Vulkan headers (from GitHub)
 set JAVA_HOME=C:\path\to\jdk-25
 build.bat                                                 :: out\irisdlss.dll, out\dlss_probe.exe
 out\dlss_probe.exe                                        :: optional: reports SR / FG support without the game
-```
-
-The mod compiles against Sodium's config API: download
-[sodium-fabric-0.9.2+mc26.3.jar](https://modrinth.com/mod/sodium/version/mc26.3-0.9.2-fabric) into
-`libs/` (or set `sodium_jar` in `mod/gradle.properties`).
-
-```bat
 cd ..\mod
 gradlew build                                             :: build\libs\iris-dlss-*.jar (natives included)
-```
-
-The Iris fork is the `iris-vulkan` submodule (or clone it next to this repo):
-
-```bat
-cd ..\iris-vulkan
-gradlew :fabric:build                                     :: build\libs\iris-fabric-*.jar (repository root)
-```
-
-voxy-vulkan compiles against Voxy, Sodium and the Iris fork (none of them are packed into its jar): put
-`voxy-0.2.20-beta.jar` (Modrinth) into `libs/` next to the Sodium jar, build the fork first (see above,
-the path is set as `iris_jar` in `voxy-vulkan/gradle.properties`), then:
-
-```bat
 cd ..\voxy-vulkan
-gradlew build                                             :: build\libs\voxy-vulkan-*.jar
+gradlew build                                             :: build\libs\voxy-vulkan-*.jar (optional)
 ```
 
-### Test loop (in the fork)
+### Test loop
 
-Copy `mod\build\libs\iris-dlss-*.jar` into `iris-vulkan\fabric\run\mods\`, then from `iris-vulkan`:
+`mod/run` is the test game directory (not in git). Set it up once:
+
+* `mod/run/mods/`: Sodium, Fabric API, Vitrail (the mod itself comes from the build).
+* `mod/run/shaderpacks/`: a pack (Solas), plus the own test packs from [`testpacks/`](testpacks).
+* `mod/run/vitrail/pack.txt`: `pack=Solas Shader V3.8.zip` and `enabled=true` (or pick it with `I` once).
+* `mod/run/options.txt`: `fullscreen:false` (a minimized fullscreen window is capped at 10 fps) and
+  `inactivityFpsLimit:"minimized"` (else the AFK limit of 30 fps hits long runs).
+
+Then, from `mod`:
 
 ```bat
-gradlew :fabric:runClient -PtestWorld=vulkan-test
+gradlew runClient -PtestWorld=vulkan-test
 ```
 
-joins (first time: creates) a test world, saves `fabric/run/screenshots/vulkan-test.png` after 200 ticks
-and quits. Options: `-PtestCommands="time set 6000;tp @p -36 82 18 180 8"` (chat commands after joining),
-`-PtestPitch=40`, `-PtestTicks=900`, `-PwindowSize=1920x1080`, `-PdlssBenchmark` (cycles DLSS modes, logs
-fps as `Iris DLSS benchmark:`), `-PdlssScreen=mod|sodium|sodium2` (opens the settings for the screenshot),
-`-PjfrProfile` (Java Flight Recording), `-PdlssForeignAcquire` (simulates Lunar's swapchain handling).
-Pick the pack with `shaderPack=` in `fabric/run/config/iris.properties`. Use `fullscreen:false` in
-`fabric/run/options.txt` (a minimized fullscreen window is capped at 10 fps).
+joins (first time: creates, fixed seed) a test world, saves `run/screenshots/dlss-test.png` after 200
+ticks and quits. Options: `-PtestCommands="time set 1500;weather clear;tp @p -36 84 18 -90 20"` (chat
+commands after joining), `-PtestPitch=40`, `-PtestTicks=900`, `-PwindowSize=1920x1080`, `-PdlssBenchmark`
+(cycles DLSS modes, logs fps as `Iris DLSS benchmark:`), `-PdlssOff` (DLSS off, still on Vulkan),
+`-PdlssScreen=mod|sodium|sodium2` (opens the settings), `-PdlssDebug=spin|walk` (camera motion + Frame Generation frame capture into `run/iris-dlss/captures`).
+Look at the screenshot. If Gradle says "Could not connect to the Gradle daemon", run `gradlew --stop` and
+try again.
 
-More background for contributors: [`CLAUDE.md`](CLAUDE.md) (status, design, test notes) and
-[`docs/vulkan-port.md`](docs/vulkan-port.md) (plan and milestones of the Iris port).
+Test packs in [`testpacks/`](testpacks) (own, small GLSL, written for the old Iris port, not yet checked
+with Vitrail): `VulkanTest` (composite swaps red/blue, final
+draws an 8 px red border, gbuffers write colortex0/1), `VulkanTestPost` (composite/final only),
+`VulkanTestAo`, `VulkanTestCenter`, `VulkanTestMip` (shadowtex0 mip 0 left, mip 4 right).
+
+More background for contributors: [`CLAUDE.md`](CLAUDE.md) (status, design, test notes).
 
 ## How it works
 
@@ -236,7 +235,7 @@ Minecraft (RenderPearl Vulkan backend)                 dlss-bridge (irisdlss.dll
 vkCreateInstance / vkCreateDevice ───────────────────▶ adds NGX + DLSS-G extensions, features,
                                                         a presenter queue, an optical-flow queue
 world → low-res main target (jittered projection)
-  (Iris on Vulkan: gbuffers, deferred, composite, final)
+  (Vitrail: the pack's gbuffers, deferred, composite, final)
 motion-vector pass (RenderPearl pipeline)
 game command buffer ◀──── DLSS SR recorded here ────── on the game's color / depth images
 sharpen pass → full-res target, GUI on top
@@ -256,7 +255,7 @@ submit signals a timeline semaphore ──────────────�
 * The hand pass clears the main depth buffer, so the world's depth is copied before it; motion
   vectors use it, the hand gets zero motion.
 * Motion vectors are reconstructed from depth and the camera only (no per-object motion yet).
-* Depth convention: vanilla 26.3 is reverse-Z (`DepthConvention`).
+* Depth convention: vanilla 26.3 is reverse-Z (`DepthConvention`), Vitrail keeps it.
 
 | Path | What |
 |------|------|
@@ -266,20 +265,22 @@ submit signals a timeline semaphore ──────────────�
 | `mod/.../DlssUpscaler.java` | jitter, motion-vector + sharpen pipelines, SR call, FG inputs |
 | `mod/.../VulkanPresenter.java` | hands the finished frame to the bridge's presenter |
 | `mod/.../SodiumOptions.java`, `DlssSettingsScreen.java` | settings (Sodium pages, Mod Menu screen) |
-| `mod/.../mixin/` | Vulkan instance/device, command encoder, surface, samplers, backend choice, GameRenderer, Camera, HUD overlay, F3 |
-| `iris-vulkan/` | the Iris fork (submodule), its Vulkan code in `common/src/main/java/net/irisshaders/iris/vulkan` |
+| `mod/.../ShaderPackTweaks.java`, `mixin/VitrailRenderScaleMixin.java` | Vitrail: pack TAA off, its Render Scale off under DLSS |
+| `mod/.../mixin/` | Vulkan instance/device, command encoder, surface, samplers, backend choice, GameRenderer, Camera, HUD overlay, F3, dev test world |
+| `voxy-vulkan/` | Voxy LODs on Vulkan (separate mod) |
+| `testpacks/` | own test shader packs |
 
 ## Known issues
 
-* Voxy LODs are not drawn while a shader pack is active yet (stage 2, see above), and cast no shadows.
 * Some blur / noise in the distance while moving: motion vectors are camera-only (moving entities,
   water have none).
 * Frame Generation matrices are a best effort.
+* Voxy LODs are off while a shader pack is active, and cast no shadows.
 * Only Windows + NVIDIA.
 
 ## License
 
-This mod: [MIT](LICENSE). The Iris fork: LGPL-3.0, like Iris. NVIDIA's DLSS runtime files in the jar
-(`nvngx_dlss.dll`, `nvngx_dlssg.dll`) are redistributed under the NVIDIA DLSS SDK license
-(`NVIDIA_DLSS_LICENSE.txt` in the jar); `fetch-deps.ps1` downloads the SDK, it is not part of this
-repository. Shader packs are not included; get them from their authors.
+This mod and voxy-vulkan: [MIT](LICENSE). NVIDIA's DLSS runtime files in the jar (`nvngx_dlss.dll`,
+`nvngx_dlssg.dll`) are redistributed under the NVIDIA DLSS SDK license (`NVIDIA_DLSS_LICENSE.txt` in the
+jar); `fetch-deps.ps1` downloads the SDK, it is not part of this repository. Vitrail (LGPL-3.0), Sodium,
+Voxy and shader packs are not included; get them from their authors.
