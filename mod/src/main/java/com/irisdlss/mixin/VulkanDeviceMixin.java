@@ -17,6 +17,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(VulkanDevice.class)
 public class VulkanDeviceMixin {
 
+    @Inject(method = "<init>", at = @At("TAIL"))
+    private void irisdlss$remember(CallbackInfo ci) {
+        GpuAllocationStats.device((VulkanDevice) (Object) this);
+    }
+
     @Inject(method = "close", at = @At(value = "INVOKE", target = "Lorg/lwjgl/util/vma/Vma;vmaDestroyAllocator(J)V"))
     private void irisdlss$shutdown(CallbackInfo ci) {
         DlssUpscaler.shutdown();
