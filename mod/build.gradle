@@ -58,6 +58,26 @@ loom {
 				vmArg "-Diris-dlss.captureAt=300"
 				vmArg "-Diris-dlss.debugLog=true"
 			}
+			// Test run without the Iris fork (e.g. with Vitrail): -PtestWorld=<name> joins/creates that world,
+			// -PtestCommands="time set 1500;tp @p ..." after joining, -PtestPitch=20, -PtestTicks=400 until
+			// run/screenshots/dlss-test.png is saved and the game quits. -PwindowSize=1920x1080.
+			["testWorld", "testCommands", "testPitch", "testTicks"].each { name ->
+				if (project.hasProperty(name)) {
+					vmArg "-Diris-dlss.${name}=" + project.property(name)
+				}
+			}
+			// -PdlssOff: DLSS off once in the world, still on Vulkan (compare with DLSS on).
+			if (project.hasProperty("dlssOff")) {
+				vmArg "-Diris-dlss.devNoDlss=true"
+			}
+			if (project.hasProperty("dlssBenchmark")) {
+				vmArg "-Diris-dlss.benchmark=true"
+				vmArg "-Diris-dlss.testTicks=4000"
+			}
+			if (project.hasProperty("windowSize")) {
+				def size = project.property("windowSize").toString().split("x")
+				programArgs "--width", size[0], "--height", size[1]
+			}
 		}
 	}
 }
