@@ -1,4 +1,0 @@
-[submodule "iris-vulkan"]
-	path = iris-vulkan
-	url = https://github.com/laurensanp/iris-vulkan.git
-	branch = vulkan-m2

@@ -2,7 +2,7 @@ plugins {
 	id 'net.fabricmc.fabric-loom' version "1.19-SNAPSHOT"
 }
 
-version = "0.6.0+mc26.3"
+version = "0.7.0+mc26.3"
 group = "com.irisdlss"
 
 repositories {
@@ -45,7 +45,7 @@ processResources.dependsOn copyNatives
 loom {
 	runs {
 		client {
-			// Same test game dir as the Iris package test (Sodium, Iris, Voxy, Complementary).
+			// Test game dir (Sodium, Fabric API, Vitrail, shader packs; not in git, see README "Build from source").
 			runDir = "run"
 			// Own LWJGL extract dir: another running Minecraft (e.g. Lunar Client) locks
 			// %TEMP%/lwjgl_<user>/.../lwjgl_zstd.dll, which Voxy needs to extract its own copy.
@@ -67,6 +67,10 @@ loom {
 				}
 			}
 			// -PdlssOff: DLSS off once in the world, still on Vulkan (compare with DLSS on).
+			// -PdlssScreen=mod|sodium|sodium2 opens the DLSS settings after joining (for the test screenshot).
+			if (project.hasProperty("dlssScreen")) {
+				vmArg "-Diris-dlss.debugScreen=" + project.property("dlssScreen")
+			}
 			if (project.hasProperty("dlssOff")) {
 				vmArg "-Diris-dlss.devNoDlss=true"
 			}

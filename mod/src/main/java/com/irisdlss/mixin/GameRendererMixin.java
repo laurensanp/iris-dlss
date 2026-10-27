@@ -24,7 +24,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Two main targets: the world (vanilla, Iris, Voxy) renders into a DLSS-sized one, the GUI into a
+ * Two main targets: the world (vanilla, shader pack, Voxy) renders into a DLSS-sized one, the GUI into a
  * window-sized one. The field is swapped around the world/GUI boundary of GameRenderer.render, so
  * everything that asks for "the main render target" gets the right one for its phase.
  */
@@ -74,8 +74,8 @@ public abstract class GameRendererMixin {
         this.irisdlss$frameActive = DlssUpscaler.prepare(window.width, window.height);
         if (!this.irisdlss$frameActive) {
             if (this.irisdlss$full != null) {
-                // DLSS turned off or failed: back to the game's own main target at full size. Iris
-                // keeps state on that object, so never hand the game our extra GUI target instead.
+                // DLSS turned off or failed: back to the game's own main target at full size. Shader mods
+                // keep state on that object, so never hand the game our extra GUI target instead.
                 this.mainRenderTarget = this.irisdlss$low;
                 this.irisdlss$full.destroyBuffers();
                 this.irisdlss$full = null;
@@ -145,7 +145,7 @@ public abstract class GameRendererMixin {
         DlssUpscaler.captureProjection(projectionMatrix);
     }
 
-    /** End of the world phase (after Iris composite and vanilla post effects): upscale, then GUI. */
+    /** End of the world phase (after the pack's composite/final and vanilla post effects): upscale, then GUI. */
     @Inject(method = "render", at = @At(value = "INVOKE",
         target = "Lnet/minecraft/client/renderer/fog/FogRenderer;endFrame()V"))
     private void irisdlss$upscale(CallbackInfo ci) {
