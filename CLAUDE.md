@@ -93,6 +93,9 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   local only, never publish). Patched jar tested in dev (pack draws, no errors); waiting for the next Lunar start.
   Could be reported to Vitrail (use @WrapOperation instead of @Redirect); ask the user first.
 
+- Since 2026-10-27 17:05 Lunar gets `iris-dlss-0.7.1+mc26.3.jar` (swapped in when the game closes; old jars in
+  `mods-backup-2026-10-27-recording/`), `diagnosticRecording=false` there again.
+
 ## Build & test
 
 - Gradle needs **JDK 25**: `JAVA_HOME=~/.jdks/jdk-25.0.4.1+1`. Use `--no-daemon`; "Could not connect to the Gradle
@@ -134,7 +137,8 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 `"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jar> -R laurensanp/iris-dlss --prerelease` (gh is
 logged in as laurensanp). v0.7.0 (2026-10-27, first with Vitrail): `iris-dlss-0.7.0+mc26.3.jar` +
 `voxy-vulkan-0.1.1+mc26.3.jar`; Vitrail is never attached (link to Modrinth + `tools/PatchVitrail.java` for Lunar).
-v0.5.0/v0.6.0 notes start with an "Outdated, needs the archived fork" line. Next release: bump `version` in
+v0.7.1 (2026-10-27): pacing without VSync, vertex buffer reuse, diagnosticRecording (same voxy-vulkan 0.1.1
+attached). v0.5.0/v0.6.0 notes start with an "Outdated, needs the archived fork" line. Next release: bump `version` in
 `mod/build.gradle` (and `voxy-vulkan/build.gradle` if it changed), README notes, keep the asset names.
 
 ## Working with the user
