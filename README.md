@@ -78,6 +78,18 @@ search "Multi-Threaded". Or, with Lunar's game closed, set it in
 
 (keep the `version` your file already has). Lunar's log then shows `[LC] Disabled threaded present`.
 
+**Vitrail crashes Lunar at start** (`Critical injection failure: Redirector lunar$maybeBarrier ... VulkanCommandEncoder`):
+Lunar and Vitrail both redirect the same barrier call in RenderPearl's command encoder. Vitrail's redirect
+only narrows the barrier after its own passes, so removing it is safe (the game's full barrier stays).
+[`tools/PatchVitrail.java`](tools/PatchVitrail.java) makes a copy of the Vitrail jar without it (needs JDK 25
+and ASM 9, e.g. from the Gradle cache):
+
+```bat
+java -cp asm-9.10.1.jar;asm-tree-9.10.1.jar tools\PatchVitrail.java vitrail-0.13.0-beta+mc26.3.jar vitrail-0.13.0-beta+mc26.3-lunarfix.jar
+```
+
+Use the `-lunarfix` jar instead of the original in Lunar's `mods`. Tested with Vitrail 0.13.0-beta.
+
 ## Settings
 
 Video Settings → **DLSS** (Sodium's settings screen, two pages), or Mod Menu → Iris DLSS Bridge. Changes
