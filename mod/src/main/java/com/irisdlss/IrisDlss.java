@@ -63,6 +63,11 @@ public class IrisDlss implements ClientModInitializer {
         }
     }
 
+    /** Vitrail (OptiFine-format shader packs on Vulkan, instead of the Iris fork) is installed. */
+    public static boolean isVitrailLoaded() {
+        return FabricLoader.getInstance().isModLoaded("vitrail");
+    }
+
     public static boolean isNativeLoaded() {
         return nativeLoaded;
     }

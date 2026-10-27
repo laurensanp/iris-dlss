@@ -173,7 +173,25 @@ Progress, in the fork:
   patch as Voxy prepared it (`IrisLods`). voxy-vulkan compiles against the fork jar (`iris_jar`).
 - Releases 2026-10-27: iris-dlss `v0.6.0` (+ `voxy-vulkan-0.1.0+mc26.3.jar` attached, experimental) and iris-vulkan
   `vulkan-v0.2.0` (M3). Lunar now has `iris-dlss-0.6.0+mc26.3.jar` (the old file name is gone; backup in
-  `mods-backup-2026-10-27-release/`).
+  `mods-backup-2026-10-27-release/`). In Lunar Client it still drops to low FPS after some Playtime. After some time its back to normal. fix this next.
+- **Vitrail as alternative to the fork (2026-10-27).** Vitrail (modrinth `vitrail-shaders`, github avpbynf/Vitrail-Shaders,
+  LGPL-3.0, own engine, not Iris) runs OptiFine packs on the 26.3 Vulkan renderer and works with iris-dlss as is:
+  it draws the world into the main target (reverse-Z depth kept), takes the projection the game draws with (our
+  jitter included), runs composite/final before our upscale at `FogRenderer.endFrame`. Verified in `mod/run`
+  (Sodium, Fabric API, `vitrail-0.13.0-beta+mc26.3.jar`; Iris jar in `mods-disabled/`, no Voxy) with Solas: DLSS SR +
+  FG x2 work, motion vectors/hand correct in an FG capture. Changes: `VitrailRenderScaleMixin` (`@Pseudo`) makes
+  Vitrail's own Render Scale (FSR 1, swaps main target textures) read 100 % while DLSS runs; `ShaderPackTweaks`
+  reads Vitrail's `vitrail/pack.txt` (`pack=`, `enabled=`, `renderscale=`; Vitrail shares `shaderpacks/<pack>.txt`);
+  own test harness in iris-dlss for runs without the fork: `cd mod && gradlew runClient -PtestWorld=vulkan-test
+  [-PtestCommands=... -PtestPitch -PtestTicks -PwindowSize -PdlssBenchmark -PdlssOff]`, screenshot
+  `mod/run/screenshots/dlss-test.png`. Vitrail picks the pack with `I`. Benchmark 1080p, same Solas settings and view:
+  Vitrail ~5-10 % faster than the fork (SR+FG 122 vs 115, Quality 176 vs 161, Perf 217 vs 196, DLAA 123 vs 114, off
+  146 vs 133); end screenshots near identical, but Vitrail's hand is too bright at night. Vitrail fails the whole
+  pack when one program doesn't compile; Solas with `SSAO=false` (deferred1, colortex5) or `DOF=true`+`BLOOM=false`
+  (composite14, gbufferProjectionInverse) breaks, because it doesn't drop unused functions like Iris does. The user's
+  Lunar Solas settings have `BLOOM=false`+`DOF=true` -> would not draw on Vitrail 0.13.0. Not done: Lunar install,
+  Voxy with Vitrail (Vitrail supports Distant Horizons), report the Solas issue upstream. Vitrail source clone:
+  `../vitrail-src`, jar: `../vitrail-dl`. The fork's `fabric/run/mods` has no Voxy now (`mods-disabled-2026-10-27/`).
 - The fork is public at github.com/laurensanp/iris-vulkan (LGPL-3.0); upstream Iris is the `upstream` remote.
 - `fabric/run` (test world, packs, config) is not in git; the `VulkanTest` pack is a few small own GLSL
   files, recreate it from the description above if missing.

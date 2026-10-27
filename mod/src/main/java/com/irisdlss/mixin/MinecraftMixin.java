@@ -1,6 +1,7 @@
 package com.irisdlss.mixin;
 
 import com.irisdlss.DevScreens;
+import com.irisdlss.DevTest;
 import com.irisdlss.DlssBenchmark;
 import com.irisdlss.FrameStats;
 import com.irisdlss.VulkanPresenter;
@@ -20,5 +21,10 @@ public class MinecraftMixin {
         VulkanPresenter.frameStart();
         DlssBenchmark.frame();
         DevScreens.frame();
+    }
+
+    @Inject(method = "tick", at = @At("TAIL"))
+    private void irisdlss$devTest(CallbackInfo ci) {
+        DevTest.tick((Minecraft) (Object) this);
     }
 }

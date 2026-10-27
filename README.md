@@ -28,7 +28,7 @@ Windows 11) with Solas 3.8. Bug reports welcome in the [issues](https://github.c
 | OS | Windows 10 / 11, 64-bit |
 | GPU | NVIDIA RTX. Super Resolution: RTX 20 or newer. **Frame Generation: RTX 40 / 50 only.** Recent driver. |
 | Game | Minecraft **26.3** with Fabric Loader **0.20.1+** |
-| Mods | [Sodium](https://modrinth.com/mod/sodium) 0.9.2+ for 26.3 (needed for shaders), the **Iris Vulkan fork** (below) for shader packs |
+| Mods | [Sodium](https://modrinth.com/mod/sodium) 0.9.2+ for 26.3 (needed for shaders), the **Iris Vulkan fork** (below) for shader packs, or [Vitrail](#alternative-vitrail) instead |
 | Not together with | ResolutionScaler / GGTU or other mods that change the render resolution; regular Iris (use the fork instead) |
 
 ## Install (players)
@@ -107,6 +107,25 @@ shadow samplers emulated, depth mipmaps), **compute shaders**, **SSBOs**, **cust
 (voxel and flood-fill lighting), **geometry and tessellation shaders** and colour space conversion, all on
 Minecraft's Vulkan device. Compared against OpenGL screenshots with Solas, Complementary, Photon, Bliss and
 Rethinking Voxels. Not done yet: arrays of images.
+
+### Alternative: Vitrail
+
+[Vitrail](https://modrinth.com/mod/vitrail-shaders) (LGPL-3.0, by avpbynf) is a separate shader pack engine
+for Minecraft's Vulkan renderer, not based on this fork. It works with this mod instead of the Iris fork:
+put `vitrail-<version>+mc26.3.jar`, Sodium and [Fabric API](https://modrinth.com/mod/fabric-api) into
+`mods/` and **don't install the Iris fork next to it** (both would draw on Vulkan). Pick the pack with `I`
+in game. Tested 2026-10-27 with Vitrail 0.13.0-beta and Solas 3.8: DLSS SR and Frame Generation work, the
+pack gets the jittered camera, motion vectors and the hand are right.
+
+* Vitrail's own **Render Scale** (FSR 1) is ignored while DLSS is on (DLSS already sets the render size).
+* The pack's TAA is switched off for Vitrail too (`disablePackTaa`, Vitrail reads the same
+  `shaderpacks/<pack>.txt` as Iris).
+* Voxy LODs (voxy-vulkan) were not tested with Vitrail. Vitrail supports Distant Horizons instead.
+* Known with Solas 3.8 on Vitrail 0.13.0: `SSAO=false`, or `DOF=true` together with `BLOOM=false`, make a
+  program fail to compile and Vitrail then draws nothing of the pack (Solas uses undeclared uniforms in code
+  that Iris removes as unused). At night the first-person hand is lit too brightly.
+* Speed, 1920x1080, Solas, same view and settings, RTX 4060 Ti (fps rendered): SR Quality + FG 122 vs 115 with
+  the Iris fork, SR Quality 176 vs 161, SR Performance 217 vs 196, DLAA 123 vs 114, DLSS off 146 vs 133.
 
 ## Voxy LODs on Vulkan
 

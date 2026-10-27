@@ -34,16 +34,8 @@ public final class ShaderPackTweaks {
 
     public static void disablePackTaa(Path gameDir) {
         try {
-            Path irisConfig = gameDir.resolve("config").resolve("iris.properties");
-            if (!Files.exists(irisConfig)) {
-                return;
-            }
-            Properties iris = new Properties();
-            try (var reader = Files.newBufferedReader(irisConfig)) {
-                iris.load(reader);
-            }
-            String packName = iris.getProperty("shaderPack", "").trim();
-            if (packName.isEmpty() || !Boolean.parseBoolean(iris.getProperty("enableShaders", "true"))) {
+            String packName = selectedPack(gameDir);
+            if (packName == null) {
                 return;
             }
             Path pack = gameDir.resolve("shaderpacks").resolve(packName);
@@ -84,6 +76,49 @@ public final class ShaderPackTweaks {
         } catch (IOException | RuntimeException e) {
             IrisDlss.LOGGER.warn("Iris DLSS: could not check the shader pack's TAA setting", e);
         }
+    }
+
+    /**
+     * The pack the shader mod will load, or null: Vitrail's vitrail/pack.txt when Vitrail is installed
+     * (it draws on Vulkan; "pack=" / "enabled=" lines, or one bare word in older files, "none" = off),
+     * else Iris' config/iris.properties. Both read their pack settings from shaderpacks/&lt;pack&gt;.txt.
+     */
+    private static String selectedPack(Path gameDir) throws IOException {
+        Path vitrail = gameDir.resolve("vitrail").resolve("pack.txt");
+        if (IrisDlss.isVitrailLoaded()) {
+            if (!Files.exists(vitrail)) {
+                return null;
+            }
+            List<String> lines = Files.readAllLines(vitrail, StandardCharsets.UTF_8);
+            String name = null;
+            boolean enabled = true;
+            for (String line : lines) {
+                int eq = line.indexOf('=');
+                if (eq < 0) {
+                    if (!line.isBlank()) {
+                        name = line.trim();
+                    }
+                } else if (line.substring(0, eq).trim().equals("pack")) {
+                    name = line.substring(eq + 1).trim();
+                } else if (line.substring(0, eq).trim().equals("enabled")) {
+                    enabled = Boolean.parseBoolean(line.substring(eq + 1).trim());
+                }
+            }
+            return name == null || name.isEmpty() || name.equals("none") || !enabled ? null : name;
+        }
+        Path irisConfig = gameDir.resolve("config").resolve("iris.properties");
+        if (!Files.exists(irisConfig)) {
+            return null;
+        }
+        Properties iris = new Properties();
+        try (var reader = Files.newBufferedReader(irisConfig)) {
+            iris.load(reader);
+        }
+        String packName = iris.getProperty("shaderPack", "").trim();
+        if (packName.isEmpty() || !Boolean.parseBoolean(iris.getProperty("enableShaders", "true"))) {
+            return null;
+        }
+        return packName;
     }
 
     private static Set<String> findTaaOptions(Path pack) throws IOException {
