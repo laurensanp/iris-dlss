@@ -47,8 +47,13 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   `LodRenderer` drawn at the end of Sodium's SOLID pass, fog pushed out (`FogRendererMixin`). Section voxel index
   `y<<10|z<<5|x`, mapping id: light bits 56-63, biome 47-55, block 27-46. Voxy is All-Rights-Reserved: never pack
   or modify its code.
-- **Open:** in Lunar the FPS drops after some playtime and recovers later (seen with the old fork build); check
-  whether it still happens with Vitrail.
+- **Open:** in Lunar the FPS drops after some playtime and recovers later (old fork build and Vitrail alike).
+  2026-10-27 finding: Lunar gives the game 3 GB heap ("Allocated Memory: 3072" in crash headers), runs ZGC; on a
+  server with Solas the old generation grows ~10 MB/s to ~2.3 GB plus ~600 MB young, so the heap sits at the limit
+  and ZGC allocation stalls show as Lunar's `Pause - Unknown` 50-90 ms hitches; rendered fps 86 -> 17, single frames
+  up to 1 s. Next: more memory in Lunar's launcher (6-8 GB, PC has 32 GB), then recheck; if it still climbs, find
+  the allocator with JFR (`-XX:StartFlightRecording` in Lunar's JVM arguments; Lunar sets -XX:+DisableAttachMechanism,
+  but `jstat -gc <pid>` works).
 
 ## Lunar Client
 
