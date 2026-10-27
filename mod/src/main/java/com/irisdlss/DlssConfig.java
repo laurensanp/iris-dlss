@@ -158,6 +158,8 @@ public final class DlssConfig {
     public static boolean disablePackTaa = true;
     /** Small fps / DLSS lines in the corner of the HUD. */
     public static Overlay overlay = Overlay.OFF;
+    /** Java Flight Recording of the last minutes, written to iris-dlss/recordings when the game closes (config file only). */
+    public static boolean diagnosticRecording = false;
 
     public enum Overlay {
         OFF("Off", "off"),
@@ -202,6 +204,7 @@ public final class DlssConfig {
         renderScale = Math.max(33, Math.min(100, Math.round(parseFloat(p.getProperty("renderScale"), 67.0F))));
         disablePackTaa = Boolean.parseBoolean(p.getProperty("disablePackTaa", "true"));
         overlay = parse(Overlay.values(), p.getProperty("overlay"), Overlay.OFF);
+        diagnosticRecording = Boolean.parseBoolean(p.getProperty("diagnosticRecording", "false"));
         save();
     }
 
@@ -229,6 +232,9 @@ public final class DlssConfig {
             writer.write("disablePackTaa=" + disablePackTaa + "\n");
             writer.write("# off | fps | detailed\n");
             writer.write("overlay=" + overlay.key + "\n");
+            writer.write("# true: records the last 10 minutes (Java Flight Recorder) into iris-dlss/recordings when the game\n");
+            writer.write("# closes, to find what makes the frame rate drop. Costs ~1-2 % while on.\n");
+            writer.write("diagnosticRecording=" + diagnosticRecording + "\n");
         } catch (IOException e) {
             IrisDlss.LOGGER.warn("Could not write {}", file, e);
         }
