@@ -182,6 +182,10 @@ runs on the PC.
 * **Back to OpenGL** (e.g. to compare): set `enabled=false` in `config/iris-dlss.properties` and
   `preferredGraphicsBackend:"opengl"` in `options.txt` (Vitrail additionally keeps its own choice in
   `vitrail/graphics-api.txt`).
+* **Finding frame drops**: set `diagnosticRecording=true` in `config/iris-dlss.properties` (game closed), play
+  until it drops, quit normally. A Java Flight Recording of the last 10 minutes lands in
+  `iris-dlss/recordings/fps-<time>.jfr` (open it with JDK Mission Control or `jfr print`); attach it to an issue.
+  Set it back to `false` afterwards. Works in Lunar too, which has no JVM argument field.
 * Settings file reference: `config/iris-dlss.properties` (commented, written on every start).
 
 ## Build from source (developers)

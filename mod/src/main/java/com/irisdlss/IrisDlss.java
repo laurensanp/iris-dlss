@@ -32,6 +32,9 @@ public class IrisDlss implements ClientModInitializer {
         }
         bootstrapped = true;
         DlssConfig.load(FabricLoader.getInstance().getConfigDir().resolve("iris-dlss.properties"));
+        if (DlssConfig.diagnosticRecording) {
+            DiagnosticRecording.start(FabricLoader.getInstance().getGameDir());
+        }
         nativeDir = FabricLoader.getInstance().getGameDir().resolve("iris-dlss");
         try {
             Files.createDirectories(nativeDir);
