@@ -61,6 +61,11 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   (`{"version":38,"decoupledPresent":false}`, edit only while the game is closed). Presenting from both swapchains
   stalls in fullscreen.
 - The user's Solas settings: `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap tweaks).
+- Last install 2026-10-27 (Vitrail switch): `iris-dlss-0.7.0+mc26.3.jar` + `vitrail-0.13.0-beta+mc26.3.jar` added,
+  fork jar and iris-dlss 0.6.0 removed, `voxy-0.2.20-beta.jar` / `voxy-vulkan-*.jar` renamed `.disabled`, Solas
+  `BLOOM=true` (was false; with DOF on Vitrail can't compile composite14 otherwise), `vitrail/pack.txt` selects
+  Solas. Old files in `mods-backup-2026-10-27-vitrail/`. Same setup tested in dev with Lunar's Sodium 0.9.3-beta.1;
+  not yet started in Lunar itself.
 
 ## Build & test
 
