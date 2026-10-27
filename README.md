@@ -90,6 +90,10 @@ java -cp asm-9.10.1.jar;asm-tree-9.10.1.jar tools\PatchVitrail.java vitrail-0.13
 
 Use the `-lunarfix` jar instead of the original in Lunar's `mods`. Tested with Vitrail 0.13.0-beta.
 
+**FPS drop after a few minutes that recovers later**: give the game more memory in Lunar's launcher
+(Settings → Allocated Memory, e.g. 8 GB). With 3 GB the Java heap fills up with shader packs and maps and the
+game keeps stalling for garbage collection (Lunar's log shows many `Pause - Unknown` lines).
+
 ## Settings
 
 Video Settings → **DLSS** (Sodium's settings screen, two pages), or Mod Menu → Iris DLSS Bridge. Changes
