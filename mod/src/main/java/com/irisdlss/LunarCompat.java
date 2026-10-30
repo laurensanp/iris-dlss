@@ -34,7 +34,8 @@ import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
  * same call, which otherwise is a critical injection failure at start (same change as tools/PatchVitrail.java;
  * Vitrail only narrows the barrier after its own passes, the game's full barrier stays). And Lunar's
  * "Multi-Threaded Rendering" (decoupledPresent) is turned off in its settings file, because with it Lunar
- * presents the swapchain itself and Frame Generation cannot start. Lunar reads that file after the mixin setup.
+ * presents the swapchain itself and Frame Generation cannot start; with Vitrail its Turbo entity modes too
+ * (armor stands and sign text vanish with shaders). Lunar reads that file after the mixin setup.
  * config/iris-dlss.properties: lunarCompat=false turns both off.
  */
 public final class LunarCompat implements IMixinConfigPlugin {
@@ -75,7 +76,7 @@ public final class LunarCompat implements IMixinConfigPlugin {
             boolean lunar = isLunar();
             dropVitrailRedirect(lunar);
             if (lunar || System.getProperty("iris-dlss.lunarDir") != null) {
-                turnOffThreadedPresent();
+                turnOffLunarSettings();
             }
         } catch (Throwable t) {
             LOGGER.warn("Iris DLSS: Lunar Client compatibility step failed", t);
@@ -261,10 +262,16 @@ public final class LunarCompat implements IMixinConfigPlugin {
         return null;
     }
 
-    // --- Lunar's Multi-Threaded Rendering -----------------------------------------------------------
+    // --- Lunar's performance settings ---------------------------------------------------------------
 
-    /** Sets decoupledPresent=false in the active Lunar settings profile (~/.lunarclient/settings/game/<profile>). */
-    private static void turnOffThreadedPresent() throws IOException {
+    /**
+     * Sets, in the active Lunar settings profile (~/.lunarclient/settings/game/&lt;profile&gt;/performance.json),
+     * decoupledPresent=false (Multi-Threaded Rendering) and, with Vitrail installed, turboEntityMode=false and
+     * turboBlockEntityMode=false: Lunar's Turbo Engine bakes resting entities (armor stands) and block entities
+     * (sign text) into its own pipelines after a moment, which Vitrail's pack doesn't draw, so they vanish with
+     * shaders on. Turbo is switched on by Lunar's remote feature flags and isn't shown in its settings screen.
+     */
+    private static void turnOffLunarSettings() throws IOException {
         String dir = System.getProperty("iris-dlss.lunarDir");
         Path game = (dir != null ? Path.of(dir) : Path.of(System.getProperty("user.home"), ".lunarclient"))
             .resolve("settings").resolve("game");
@@ -277,8 +284,19 @@ public final class LunarCompat implements IMixinConfigPlugin {
         if (json == null) {
             return;
         }
-        JsonElement current = json.get("decoupledPresent");
-        if (current != null && current.isJsonPrimitive() && !current.getAsBoolean()) {
+        List<String> keys = new ArrayList<>(List.of("decoupledPresent"));
+        if (FabricLoader.getInstance().isModLoaded("vitrail")) {
+            keys.addAll(List.of("turboEntityMode", "turboBlockEntityMode"));
+        }
+        List<String> changed = new ArrayList<>();
+        for (String key : keys) {
+            JsonElement current = json.get(key);
+            if (current == null || !current.isJsonPrimitive() || current.getAsBoolean()) {
+                json.addProperty(key, false);
+                changed.add(key);
+            }
+        }
+        if (changed.isEmpty()) {
             return;
         }
         if (!json.has("version")) {
@@ -287,12 +305,12 @@ public final class LunarCompat implements IMixinConfigPlugin {
                 json.add("version", version);
             }
         }
-        json.addProperty("decoupledPresent", false);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         Files.createDirectories(file.getParent());
         Files.writeString(file, gson.toJson(json), StandardCharsets.UTF_8);
-        LOGGER.info("Iris DLSS: turned off Lunar's Multi-Threaded Rendering in profile '{}' (needed for Frame "
-            + "Generation; lunarCompat=false in config/iris-dlss.properties keeps Lunar's setting)", profile);
+        LOGGER.info("Iris DLSS: turned off {} in Lunar profile '{}' (Multi-Threaded Rendering stops Frame "
+            + "Generation, Turbo entities aren't drawn by shader packs; lunarCompat=false in "
+            + "config/iris-dlss.properties keeps Lunar's settings)", changed, profile);
     }
 
     private static String activeProfile(Path game) {

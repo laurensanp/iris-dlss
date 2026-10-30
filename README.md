@@ -79,7 +79,7 @@ Updating: close the game, replace the jars, start again. Your settings stay in
 Works in Lunar Client profiles that run Fabric for 26.3 (put the jars into the profile's `mods`
 folder while the game is closed; Lunar ships its own Sodium, Fabric API and Mod Menu, keep those).
 
-Since 0.7.2 the mod handles Lunar's two conflicts itself when the game starts (nothing to set up, also in a
+Since 0.7.2 the mod handles Lunar's conflicts itself when the game starts (nothing to set up, also in a
 new Lunar profile); `lunarCompat=false` in `config/iris-dlss.properties` turns that off:
 
 * **Lunar's "Multi-Threaded Rendering" is turned off** in the active settings profile
@@ -87,6 +87,11 @@ new Lunar profile); `lunarCompat=false` in `config/iris-dlss.properties` turns t
   Lunar reads it. With it on, Lunar acquires and presents the game's frames on its own threads and Frame
   Generation cannot start (the DLSS settings then show "turn off Lunar's Multi-Threaded Rendering"). If you
   turn it back on in game, it is off again after the next start.
+* **Lunar's Turbo Entity / Turbo Block Entity Mode is turned off** (same file, `"turboEntityMode":false`,
+  `"turboBlockEntityMode":false`, since 0.7.7, only with Vitrail installed). Lunar switches them on remotely
+  and doesn't show them in its settings; they bake resting entities and block entities into Lunar's own
+  pipelines, which the shader pack doesn't draw: armor stands vanished after a moment and sign text was
+  missing with shaders on.
 * **Vitrail no longer crashes Lunar at start** (`Critical injection failure: Redirector lunar$maybeBarrier ...
   VulkanCommandEncoder`): Lunar and [Vitrail](https://github.com/avpbynf/Vitrail-Shaders) (LGPL-3.0, by its
   authors, not part of this mod) both redirect the same barrier call in RenderPearl's command encoder. Vitrail's

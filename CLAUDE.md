@@ -111,6 +111,13 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   89-103 rendered, 1 % low 112-126 shown (was 98-108), worst join pause 446 ms (was 958/1658 ms), no errors.
   Not recommended for this setup: Nvidium (OpenGL only), AsyncParticles, Gnetum (HUD lag with FG), Ixeris,
   borderless-fullscreen mods (presenter), DH (LODs like Voxy).
+- Lunar Turbo Engine (2026-10-31): Lunar's remote feature flags (`settings/game/metadata_fallback.json` TurboEntities/
+  TurboBlockEntities) switch on "Turbo Entity Mode"/"Turbo Block Entity Mode" (not shown in its settings screen): resting
+  entities and block entities get baked into Lunar pipelines (`lunar_turbo`, `lunar_armor_cutout_no_cull_triangles`) that
+  Vitrail doesn't draw, so with shaders armor stands vanished after a moment and sign text was missing (mobs fine, mods
+  irrelevant, DLSS irrelevant, not reproducible in dev). Since 0.7.7 `LunarCompat` writes `turboEntityMode:false`,
+  `turboBlockEntityMode:false` into performance.json (same Lunar settings class as decoupledPresent) when Vitrail is
+  installed. User confirmed in Lunar. "Leaves shaking" in Complementary = its WAVING_LEAVES wind (ground still, measured).
 - The user's Solas settings: `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap tweaks).
 - Lunar history: 2026-10-27 switch to Vitrail (Solas `BLOOM=true` there: with DOF on Vitrail can't compile
   composite14 otherwise; voxy jars renamed `.disabled`; old files in `mods-backup-2026-10-27-vitrail/`). The first
@@ -118,7 +125,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   `VulkanCommandEncoder.submitRenderPass`); until 0.7.2 that was worked around with `tools/PatchVitrail.java` and a
   local `-lunarfix` Vitrail jar (`../vitrail-dl`, never publish), since 0.7.2 `LunarCompat` does it at runtime.
   Could be reported to Vitrail (use @WrapOperation instead of @Redirect); ask the user first.
-- Current Lunar install (2026-10-30): surv and dlss-test have `iris-dlss-0.7.6+mc26.3.jar` (release; 0.7.4 in `mods-backup-2026-10-30-075/`) + plain `vitrail-0.13.0-beta+mc26.3.jar`,
+- Current Lunar install (2026-10-31): surv, dlss-test and dlss-optimized have `iris-dlss-0.7.7+mc26.3.jar` (local build, not released; 0.7.6 in `mods-backup-2026-10-31-076/`) + plain `vitrail-0.13.0-beta+mc26.3.jar`,
   `diagnosticRecording=false`; Lunar's active settings profile is `Default` (`DLSS` = empty test profile).
 
 ## Build & test
