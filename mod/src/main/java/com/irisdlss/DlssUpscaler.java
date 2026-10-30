@@ -214,6 +214,8 @@ public final class DlssUpscaler {
 
     /** Dev option -Diris-dlss.debugLog=true: camera inputs of every upscaled frame. */
     private static final boolean DEBUG_LOG = Boolean.getBoolean("iris-dlss.debugLog");
+    /** Dev option -Diris-dlss.bypass=true (DLAA only): show the raw rendered frame, no DLSS. */
+    private static final boolean BYPASS = Boolean.getBoolean("iris-dlss.bypass");
 
     private static boolean initialized;
     private static boolean failed;
@@ -662,6 +664,10 @@ public final class DlssUpscaler {
             pass.draw(3, 1, 0, 0);
         }
 
+        if (BYPASS && renderWidth == outputWidth && renderHeight == outputHeight) {
+            // Dev comparison: the raw rendered frame instead of DLSS's output (DLAA sizes only).
+            encoder.copyTextureToTexture(low.getColorTexture(), outputTexture, 0, 0, 0, 0, 0, renderWidth, renderHeight);
+        } else {
         int status = DlssNative.evaluate(VulkanAccess.commandBuffer(),
             VulkanAccess.concat(VulkanAccess.describe(lowColor), VulkanAccess.describe(combinedDepthView),
                 VulkanAccess.describe(motionView), VulkanAccess.describe(outputView)),
@@ -669,6 +675,7 @@ public final class DlssUpscaler {
         if (status != DlssNative.OK) {
             disable(DlssNative.message());
             return;
+        }
         }
 
         if (full.width == outputWidth && full.height == outputHeight) {
@@ -753,6 +760,9 @@ public final class DlssUpscaler {
         p[83] = Math.abs(currentProjection.m11() / currentProjection.m00());
         p[84] = resetHistory ? 1.0F : 0.0F;
         p[85] = depthInverted ? 1.0F : 0.0F;
+        if (DEBUG_LOG) {
+            IrisDlss.LOGGER.info("Iris DLSS debug: fg params {}", java.util.Arrays.toString(p));
+        }
         frameGenParamsReady = true;
     }
 }

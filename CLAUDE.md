@@ -151,6 +151,13 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   Dither animation was ruled out (`-Diris-dlss.noDitherAnimation=true` gives the same grid with CAS).
 - Shaking for ~2 s after joining: history reset for 60 frames (new level) showed the raw jitter; jitter is now 0
   while `resetFrames > 0`.
+- FG smear at tree/block edges while turning (2026-10-30): reproduced with `-Diris-dlss.debugSpin=6` (6 deg per
+  rendered frame, ~100 fps): only generated frames smear (real frames clean); at 1.5 deg/frame generated frames are
+  clean. Inputs checked: MVs match the measured image shift (7.27 vs 7.3 render px), clipToPrevClip's depth column
+  is (0,0,1,0) for a pure turn, camera vectors orthonormal/right-handed, FOV/aspect match. Pale tree "copies" in
+  slow turns are real fogged trees (same in `-Diris-dlss.bypass=true` raw frames, DLAA only). All presets alike.
+- Dev: `-Diris-dlss.testShots=N` (N screenshots on consecutive ticks), `-Diris-dlss.bypass=true` (DLAA: raw frame
+  instead of DLSS), `-Diris-dlss.debugSpin=deg` with `-PdlssDebug=still` (any spin speed), debugLog prints FG params.
 - `MemoryCheck`: toast when max heap < 4 GB or heap >= 90 % for 3 checks 10 s apart.
 - Dev: `-PdlssDebug=still`, `-PcaptureAt=N`, `-PtestRepeat="cmd;cmd"` (every tick), JAVA_TOOL_OPTIONS
   `-Diris-dlss.captureFrames=12`. Dev `options.txt` has `pauseOnLostFocus:false` (else the pause menu stops FG and
