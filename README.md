@@ -1,4 +1,4 @@
-# Iris DLSS Bridge (Minecraft 26.3, Fabric)
+# PYRAXIS — Minecraft Rendering Enhancement
 
 NVIDIA **DLSS Super Resolution** and **DLSS Frame Generation** for Minecraft 26.3, running inside the
 game's own Vulkan renderer, together with **shader packs on Vulkan** through
@@ -7,7 +7,7 @@ game's own Vulkan renderer, together with **shader packs on Vulkan** through
 Status: **experimental**, personal project, Windows + NVIDIA only. Tested on an RTX 4060 Ti (driver 617,
 Windows 11) with Solas 3.8. Bug reports welcome in the [issues](https://github.com/laurensanp/iris-dlss/issues).
 
-(The name is historical: until 0.6.0 shader packs ran through an own Vulkan port of Iris,
+(The previous name is retained in legacy package, config, and artifact identifiers for compatibility. Until 0.6.0 shader packs ran through an own Vulkan port of Iris,
 [iris-vulkan](https://github.com/laurensanp/iris-vulkan), now archived. Vitrail replaces it.)
 
 ## Contents
@@ -37,7 +37,7 @@ Mods, all in `.minecraft/mods/` (or the Lunar profile's `mods/`):
 
 | Mod | Where from | Needed for |
 |---|---|---|
-| `iris-dlss-<version>+mc26.3.jar` (this mod, NVIDIA's DLSS files inside) | [Releases](https://github.com/laurensanp/iris-dlss/releases) | DLSS SR + FG |
+| `iris-dlss-<version>+mc26.3.jar (legacy artifact name)` (this mod, NVIDIA's DLSS files inside) | [Releases](https://github.com/laurensanp/iris-dlss/releases) | DLSS SR + FG |
 | [Sodium](https://modrinth.com/mod/sodium) 0.9.x for 26.3 | Modrinth | the settings pages, Vitrail |
 | [Vitrail](https://modrinth.com/mod/vitrail-shaders) for 26.3 (tested: 0.13.0-beta) | Modrinth | shader packs on Vulkan |
 | [Fabric API](https://modrinth.com/mod/fabric-api) | Modrinth | Vitrail |
@@ -90,7 +90,7 @@ notice in game when Java has less than 4 GB, or when its memory stays nearly ful
 
 ## Settings
 
-Video Settings → **DLSS** (Sodium's settings screen, two pages), or Mod Menu → Iris DLSS Bridge. Changes
+Video Settings → **DLSS** (Sodium's settings screen, two pages), or Mod Menu → PYRAXIS. Changes
 apply immediately.
 
 | Setting | What it does |
@@ -200,7 +200,7 @@ workload, **JDK 25** (Gradle needs it in `JAVA_HOME`), git.
 
 ```bat
 git clone https://github.com/laurensanp/iris-dlss.git
-cd iris-dlss\dlss-bridge
+cd pyraxis\dlss-bridge
 powershell -ExecutionPolicy Bypass -File fetch-deps.ps1   :: NVIDIA DLSS SDK + Vulkan headers (from GitHub)
 set JAVA_HOME=C:\path\to\jdk-25
 build.bat                                                 :: out\irisdlss.dll, out\dlss_probe.exe
