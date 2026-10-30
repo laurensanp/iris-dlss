@@ -131,8 +131,11 @@ public final class DlssUpscaler {
         }
         """.formatted(EntityMotion.MAX * EntityMotion.VEC4S);
 
-    // Contrast-adaptive sharpening (after AMD FidelityFX CAS): restores the crispness of native
-    // rendering that the temporal reconstruction softens; strength 0..1.
+    // Robust contrast-adaptive sharpening (after AMD FidelityFX FSR 1 RCAS): restores the crispness
+    // of native rendering that the temporal reconstruction softens; strength 0..1. The lobe is limited
+    // so no pixel leaves its neighbours' range, and it is halved where the centre stands out from all
+    // four neighbours alike (noise): plain CAS amplified DLSS's faint 3-pixel residue at 1.5x
+    // upscaling into a visible grid on leaves and sand.
     private static final String SHARPEN_SHADER = """
         #version 330
         #extension GL_ARB_separate_shader_objects : require
@@ -145,18 +148,31 @@ public final class DlssUpscaler {
         vec3 at(ivec2 p) {
             return texelFetch(ColorSampler, clamp(p, ivec2(0), Size - 1), 0).rgb;
         }
+        float luma(vec3 c) {
+            return c.b * 0.5 + (c.r * 0.5 + c.g);
+        }
         void main() {
             ivec2 p = ivec2(gl_FragCoord.xy);
-            vec3 c = at(p);
-            vec3 n = at(p + ivec2(0, 1));
-            vec3 s = at(p - ivec2(0, 1));
-            vec3 e = at(p + ivec2(1, 0));
-            vec3 w = at(p - ivec2(1, 0));
-            vec3 lo = min(c, min(min(n, s), min(e, w)));
-            vec3 hi = max(c, max(max(n, s), max(e, w)));
-            vec3 amount = sqrt(clamp(min(lo, 1.0 - hi) / max(hi, vec3(1e-4)), 0.0, 1.0));
-            vec3 weight = amount * (-1.0 / mix(8.0, 4.5, Sharpness));
-            vec3 result = (c + (n + s + e + w) * weight) / (1.0 + 4.0 * weight);
+            vec3 e = at(p);
+            vec3 b = at(p + ivec2(0, 1));
+            vec3 h = at(p - ivec2(0, 1));
+            vec3 f = at(p + ivec2(1, 0));
+            vec3 d = at(p - ivec2(1, 0));
+            vec3 mn4 = min(min(b, d), min(f, h));
+            vec3 mx4 = max(max(b, d), max(f, h));
+            vec3 hitMin = mn4 / max(4.0 * mx4, vec3(1e-4));
+            vec3 hitMax = (1.0 - mx4) / min(4.0 * mn4 - 4.0, vec3(-1e-4));
+            vec3 lobeRgb = max(-hitMin, hitMax);
+            float lobe = max(-0.1875, min(max(lobeRgb.r, max(lobeRgb.g, lobeRgb.b)), 0.0)) * Sharpness;
+            float bl = luma(b);
+            float dl = luma(d);
+            float el = luma(e);
+            float fl = luma(f);
+            float hl = luma(h);
+            float range = max(max(max(bl, dl), max(fl, hl)), el) - min(min(min(bl, dl), min(fl, hl)), el);
+            float noise = clamp(abs(0.25 * (bl + dl + fl + hl) - el) / max(range, 1e-4), 0.0, 1.0);
+            lobe *= 1.0 - 0.5 * noise;
+            vec3 result = (lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0);
             fragColor = vec4(clamp(result, 0.0, 1.0), 1.0);
         }
         """;
@@ -524,6 +540,12 @@ public final class DlssUpscaler {
         jitterIndex = (jitterIndex + 1) % phases;
         jitterX = halton(jitterIndex + 1, 2) - 0.5F;
         jitterY = halton(jitterIndex + 1, 3) - 0.5F;
+        if (resetFrames > 0) {
+            // History is reset every frame while a world loads in: DLSS can't average the jitter, so
+            // it would show as the whole picture shaking. Render unjittered until history is kept.
+            jitterX = 0.0F;
+            jitterY = 0.0F;
+        }
         currentProjection.set(camera.projectionMatrix);
         camera.projectionMatrix.set(new Matrix4f()
             .translation(2.0F * jitterX / renderWidth, 2.0F * jitterY / renderHeight, 0.0F)
@@ -654,7 +676,7 @@ public final class DlssUpscaler {
                 GpuBufferSlice sharpenInfo;
                 try (MemoryStack stack = MemoryStack.stackPush()) {
                     ByteBuffer data = Std140Builder.onStack(stack, SHARPEN_INFO_SIZE)
-                        .putFloat(Math.min(1.0F, DlssConfig.sharpness))
+                        .putFloat((float) Math.sqrt(Math.min(1.0F, DlssConfig.sharpness)))
                         .putIVec2(outputWidth, outputHeight)
                         .get();
                     sharpenInfo = encoder.transientMemory().uploadGpu(data, alignment, GpuBuffer.USAGE_UNIFORM);
