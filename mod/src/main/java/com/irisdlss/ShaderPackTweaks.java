@@ -203,6 +203,72 @@ public final class ShaderPackTweaks {
         return packName;
     }
 
+    private static String tagCheckedPack;
+    private static boolean tagCheckedResult = true;
+
+    /**
+     * Whether the selected pack's block.properties (root or a world folder) names a block tag
+     * ({@code %namespace:path}). Vitrail reads the pack again when a world is joined only so tags can
+     * resolve against the world's registries; a pack without tags gets nothing from that second read
+     * but a one to two second hitch. True when unsure. Cached per pack and file time.
+     */
+    public static boolean selectedPackUsesBlockTags(Path gameDir) {
+        try {
+            String name = selectedPack(gameDir);
+            if (name == null) {
+                return true;
+            }
+            Path pack = gameDir.resolve("shaderpacks").resolve(name);
+            String key = name + "@" + Files.getLastModifiedTime(pack).toMillis();
+            if (!key.equals(tagCheckedPack)) {
+                tagCheckedResult = scanBlockTags(pack);
+                tagCheckedPack = key;
+            }
+            return tagCheckedResult;
+        } catch (IOException | RuntimeException e) {
+            return true;
+        }
+    }
+
+    private static boolean scanBlockTags(Path pack) throws IOException {
+        if (Files.isDirectory(pack)) {
+            try (Stream<Path> files = Files.walk(pack.resolve("shaders"))) {
+                for (Path file : (Iterable<Path>) files::iterator) {
+                    if (file.getFileName().toString().equals("block.properties")
+                        && namesTag(Files.readString(file, StandardCharsets.ISO_8859_1))) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        try (ZipFile zip = new ZipFile(pack.toFile())) {
+            Enumeration<? extends ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                if (!entry.isDirectory() && entry.getName().endsWith("block.properties")) {
+                    try (InputStream in = zip.getInputStream(entry)) {
+                        if (namesTag(new String(in.readAllBytes(), StandardCharsets.ISO_8859_1))) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /** A value token starting with %, outside comment lines. */
+    private static boolean namesTag(String properties) {
+        for (String line : properties.split("\\R")) {
+            String trimmed = line.trim();
+            if (!trimmed.startsWith("#") && (trimmed.startsWith("%") || trimmed.matches(".*[=\\s\\\\]%.*"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static Set<String> findTaaOptions(Path pack) throws IOException {
         Set<String> found = new LinkedHashSet<>();
         if (Files.isDirectory(pack)) {
