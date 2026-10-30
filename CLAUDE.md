@@ -105,7 +105,12 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   Menu, ImmediatelyFast, EntityCulling, FerriteCore, Dynamic FPS, Particle Core (+ Fabric Language Kotlin,
   fzzy_config), Alternate Current, zfastnoise (+ zconfig); no Voxy. DLSS Custom 80 % + sharpen 0.5 + FG x2,
   render distance 16 / simulation 8, mipmaps 4, Vitrail shadowdistance 12, Solas DOF off, shadowDistance 192,
-  VL_SAMPLES 8. First run singleplayer: 176-209 fps shown / 92-105 rendered with Solas.
+  VL_SAMPLES 8. First run singleplayer: 176-209 fps shown / 92-105 rendered with Solas. Added 2026-10-30 (user
+  approved downloads, sha512 checked against Modrinth): Lithium 0.26.3, More Culling 1.9.0 (+ Cloth Config from
+  surv), Better Block Entities 1.4.0 (from surv, built for Sodium 0.9.3-beta.1): same world 185-199 shown /
+  89-103 rendered, 1 % low 112-126 shown (was 98-108), worst join pause 446 ms (was 958/1658 ms), no errors.
+  Not recommended for this setup: Nvidium (OpenGL only), AsyncParticles, Gnetum (HUD lag with FG), Ixeris,
+  borderless-fullscreen mods (presenter), DH (LODs like Voxy).
 - The user's Solas settings: `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap tweaks).
 - Lunar history: 2026-10-27 switch to Vitrail (Solas `BLOOM=true` there: with DOF on Vitrail can't compile
   composite14 otherwise; voxy jars renamed `.disabled`; old files in `mods-backup-2026-10-27-vitrail/`). The first
