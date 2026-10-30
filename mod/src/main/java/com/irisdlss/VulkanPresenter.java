@@ -96,7 +96,7 @@ public final class VulkanPresenter {
             java.nio.file.Path dir = IrisDlss.nativeDir.resolve("captures");
             try {
                 java.nio.file.Files.createDirectories(dir);
-                DlssNative.debugCapture(4, dir.toAbsolutePath().toString());
+                DlssNative.debugCapture(Integer.getInteger("iris-dlss.captureFrames", 4), dir.toAbsolutePath().toString());
                 IrisDlss.LOGGER.info("Iris DLSS: capturing frames into {}", dir);
             } catch (java.io.IOException e) {
                 IrisDlss.LOGGER.warn("Iris DLSS: capture failed", e);

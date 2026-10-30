@@ -85,7 +85,8 @@ new Lunar profile); `lunarCompat=false` in `config/iris-dlss.properties` turns t
 
 **FPS drop after a few minutes that recovers later**: give the game more memory in Lunar's launcher
 (Settings → Allocated Memory, e.g. 8 GB). With 3 GB the Java heap fills up with shader packs and maps and the
-game keeps stalling for garbage collection (Lunar's log shows many `Pause - Unknown` lines).
+game keeps stalling for garbage collection (Lunar's log shows many `Pause - Unknown` lines). The mod shows a
+notice in game when Java has less than 4 GB, or when its memory stays nearly full for half a minute.
 
 ## Settings
 
@@ -104,7 +105,7 @@ apply immediately.
 | DLSS presenter | Shows frames through its own swapchain (needed for Frame Generation, paces frames for low latency) |
 | Performance overlay | Off / FPS / Detailed, in the top left corner: fps shown and rendered, each with its 1 % low (last five seconds) |
 | Advanced: Texture LOD bias | Sharper distant textures at lower render resolutions (after a restart) |
-| Advanced: Turn off shader pack TAA | Switches the pack's own TAA off at start (it blurs on top of DLSS) |
+| Advanced: Turn off shader pack TAA | Switches the pack's own TAA off at start (it blurs on top of DLSS). With Vitrail, the pack's noise (shadows, AO, volumetric light, reflections) still changes every frame as with its TAA, so DLSS smooths it instead of showing a fixed, crawling pattern |
 | Advanced: Hand distance, Jitter direction | Troubleshooting |
 
 F3 also shows two DLSS lines: render size → output size, and shown / rendered fps, pacing, latency.
@@ -286,9 +287,8 @@ submit signals a timeline semaphore ──────────────�
 
 ## Known issues
 
-* Some blur / noise in the distance while moving: motion vectors are camera-only (moving entities,
-  water have none).
-* Frame Generation matrices are a best effort.
+* Motion vectors follow the camera and moving entities (position and body turn, nearest 32), not animated
+  parts (legs, heads), water waves or particles: those can smear a little.
 * Voxy LODs are off while a shader pack is active, and cast no shadows.
 * Only Windows + NVIDIA.
 

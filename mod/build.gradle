@@ -50,18 +50,23 @@ loom {
 			// Own LWJGL extract dir: another running Minecraft (e.g. Lunar Client) locks
 			// %TEMP%/lwjgl_<user>/.../lwjgl_zstd.dll, which Voxy needs to extract its own copy.
 			vmArg "-Dorg.lwjgl.system.SharedLibraryExtractPath=" + file("run/lwjgl-natives").absolutePath
-			// gradlew runClient -PdlssDebug=spin|walk: steady camera turn or walking forward, and a
+			// gradlew runClient -PdlssDebug=spin|walk|still: steady camera turn, walking forward or a still camera, and a
 			// frame-generation capture into run/iris-dlss/captures (generated + real frames as PNG).
 			if (project.hasProperty("dlssDebug")) {
 				def mode = project.property("dlssDebug")
-				vmArg mode == "walk" ? "-Diris-dlss.debugWalk=true" : "-Diris-dlss.debugSpin=1.5"
-				vmArg "-Diris-dlss.captureAt=300"
+				if (mode == "walk") {
+					vmArg "-Diris-dlss.debugWalk=true"
+				} else if (mode != "still") {
+					vmArg "-Diris-dlss.debugSpin=1.5"
+				}
+				vmArg "-Diris-dlss.captureAt=" + (project.findProperty("captureAt") ?: "300")
 				vmArg "-Diris-dlss.debugLog=true"
 			}
 			// Test run without the Iris fork (e.g. with Vitrail): -PtestWorld=<name> joins/creates that world,
 			// -PtestCommands="time set 1500;tp @p ..." after joining, -PtestPitch=20, -PtestTicks=400 until
 			// run/screenshots/dlss-test.png is saved and the game quits. -PwindowSize=1920x1080.
-			["testWorld", "testCommands", "testPitch", "testTicks"].each { name ->
+			// -PtestRepeat="execute as @e[type=pig] at @s run tp @s ~0.1 ~ ~ ~5 ~" runs every tick from then on.
+			["testWorld", "testCommands", "testRepeat", "testPitch", "testTicks"].each { name ->
 				if (project.hasProperty(name)) {
 					vmArg "-Diris-dlss.${name}=" + project.property(name)
 				}

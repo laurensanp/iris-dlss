@@ -24,10 +24,12 @@ import com.mojang.renderpearl.api.textures.GpuTexture;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
 import java.nio.ByteBuffer;
 import java.util.Optional;
+import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix4d;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.system.MemoryStack;
@@ -52,11 +54,12 @@ public final class DlssUpscaler {
         }
         """;
 
-    // Camera-only motion vectors: reproject each pixel's position with last frame's camera.
-    // Values are render-resolution pixels pointing from the current to the previous position.
-    // DepthSampler is the world's depth (saved before the hand pass clears it), HandSampler the final
-    // depth, where everything but the first-person hand is the clear value. Hand pixels get no
-    // motion; DLSS and frame generation get the combined depth.
+    // Motion vectors: reproject each pixel's position with last frame's camera. Pixels inside a moving
+    // entity's box (EntityMotion) are first moved back with that entity: translation plus its body
+    // turn about the vertical axis. Values are render-resolution pixels pointing from the current to
+    // the previous position. DepthSampler is the world's depth (saved before the hand pass clears it),
+    // HandSampler the final depth, where everything but the first-person hand is the clear value.
+    // Hand pixels get no motion; DLSS and frame generation get the combined depth.
     private static final String MOTION_SHADER = """
         #version 330
         #extension GL_ARB_separate_shader_objects : require
@@ -71,6 +74,9 @@ public final class DlssUpscaler {
             int ZeroToOne;
             int DepthInverted;
             int HandInDepth;
+            int EntityCount;
+            // Per entity: center (camera-relative) + yaw change, half size, world movement.
+            vec4 Entities[%d];
         };
         layout(location = 0) out vec2 outMotion;
         layout(location = 1) out float outDepth;
@@ -97,8 +103,20 @@ public final class DlssUpscaler {
             if (abs(position.w) > 1e-8) {
                 position.xyz /= position.w;
                 if (length(position.xyz) > HandDistance) {
+                    vec3 point = position.xyz;
+                    for (int i = 0; i < EntityCount && !far; i++) {
+                        vec4 center = Entities[i * 3];
+                        vec3 relative = point - center.xyz;
+                        if (all(lessThanEqual(abs(relative), Entities[i * 3 + 1].xyz))) {
+                            float s = sin(center.w);
+                            float c = cos(center.w);
+                            vec3 turned = vec3(c * relative.x + s * relative.z, relative.y, c * relative.z - s * relative.x);
+                            point = center.xyz - Entities[i * 3 + 2].xyz + turned;
+                            break;
+                        }
+                    }
                     vec3 offset = far ? vec3(0.0) : CameraDelta;
-                    vec4 previous = Previous * vec4(position.xyz + offset, 1.0);
+                    vec4 previous = Previous * vec4(point + offset, 1.0);
                     if (previous.w > 1e-5) {
                         vec2 previousUv = previous.xy / previous.w * 0.5 + 0.5;
                         motion = (previousUv - uv) * RenderSize;
@@ -111,7 +129,7 @@ public final class DlssUpscaler {
             }
             outMotion = clamp(motion, -RenderSize, RenderSize);
         }
-        """;
+        """.formatted(EntityMotion.MAX * EntityMotion.VEC4S);
 
     // Contrast-adaptive sharpening (after AMD FidelityFX CAS): restores the crispness of native
     // rendering that the temporal reconstruction softens; strength 0..1.
@@ -175,8 +193,7 @@ public final class DlssUpscaler {
         BindGroupLayout.builder().withUniform("ColorSampler", UniformType.COMBINED_IMAGE_SAMPLER)
             .withUniform("SharpenInfo", UniformType.UNIFORM_BUFFER).build(),
         ColorTargetState.DEFAULT);
-    private static final int MOTION_INFO_SIZE = new Std140SizeCalculator().putMat4f().putMat4f().putVec3().putFloat()
-        .putVec2().putInt().putInt().putInt().get();
+    private static final int MOTION_INFO_SIZE = motionInfoSize();
     private static final int SHARPEN_INFO_SIZE = new Std140SizeCalculator().putFloat().putIVec2().get();
 
     /** Dev option -Diris-dlss.debugLog=true: camera inputs of every upscaled frame. */
@@ -226,6 +243,7 @@ public final class DlssUpscaler {
     private static boolean resetHistory = true;
     private static float depthFar = 1024.0F;
     private static Object lastLevel;
+    private static CameraType lastCameraType;
     private static int resetFrames;
 
     // Frame generation inputs of the last processed frame (see bridge.h IRISDLSS_FG_*).
@@ -234,6 +252,15 @@ public final class DlssUpscaler {
     private static boolean resetFrameGen = true;
 
     private DlssUpscaler() {
+    }
+
+    private static int motionInfoSize() {
+        Std140SizeCalculator size = new Std140SizeCalculator().putMat4f().putMat4f().putVec3().putFloat().putVec2()
+            .putInt().putInt().putInt().putInt();
+        for (int i = 0; i < EntityMotion.MAX * EntityMotion.VEC4S; i++) {
+            size.putVec4();
+        }
+        return size.get();
     }
 
     private static RenderPipeline fullscreenPipeline(String name, BindGroupLayout layout, ColorTargetState... targets) {
@@ -555,6 +582,12 @@ public final class DlssUpscaler {
         if (hasPrevious && currentPosition.distanceToSqr(previousPosition) > 16.0 * 16.0) {
             resetHistory = true;
         }
+        // Camera cut (F5 perspective switch): nothing of last frame's picture lines up.
+        CameraType cameraType = Minecraft.getInstance().options.getCameraType();
+        if (cameraType != lastCameraType) {
+            lastCameraType = cameraType;
+            resetHistory = true;
+        }
         if (!hasPrevious || resetHistory) {
             previousViewProjection.set(currentViewProjection);
             previousPosition = currentPosition;
@@ -583,16 +616,16 @@ public final class DlssUpscaler {
         Vec3 delta = currentPosition.subtract(previousPosition);
         GpuBufferSlice motionInfo;
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            ByteBuffer data = Std140Builder.onStack(stack, MOTION_INFO_SIZE)
-                .putMat4f(new Matrix4f(currentViewProjection).invert())
+            Std140Builder builder = Std140Builder.onStack(stack, MOTION_INFO_SIZE)
+                .putMat4f(new Matrix4f(new Matrix4d(currentViewProjection).invert()))
                 .putMat4f(previousViewProjection)
                 .putVec3((float) delta.x, (float) delta.y, (float) delta.z)
                 .putFloat(DlssConfig.handDistance)
                 .putVec2(renderWidth, renderHeight)
                 .putInt(DepthConvention.zeroToOne() ? 1 : 0)
                 .putInt(depthInverted ? 1 : 0)
-                .putInt(handInDepth ? 1 : 0)
-                .get();
+                .putInt(handInDepth ? 1 : 0);
+            ByteBuffer data = EntityMotion.write(builder, currentPosition).get();
             motionInfo = encoder.transientMemory().uploadGpu(data, alignment, GpuBuffer.USAGE_UNIFORM);
         }
         RenderPassDescriptor motionPass = RenderPassDescriptor.builder(() -> "DLSS motion vectors")
@@ -652,23 +685,26 @@ public final class DlssUpscaler {
      * DLSS-G camera description. The game's images start at the bottom row (RenderPearl keeps
      * OpenGL's orientation on Vulkan and flips when it presents) while DLSS-G reads row 0 as the top:
      * flip clip y. Depth is mapped to [0, 1]. JOML's column-major arrays are exactly the row-major,
-     * row-vector matrices NGX expects.
+     * row-vector matrices NGX expects. Like engines that ship DLSS-G, the inverses and the
+     * current-to-previous chain are built in double precision (camera-relative, so no large world
+     * coordinates) and only the results are rounded to float: inverting a reverse-Z projection with a
+     * 0.05 near plane in float leaves visible error in clipToPrevClip far away.
      */
     private static void buildFrameGenParams(Matrix4f currentViewProjection, Vec3 delta) {
         float[] p = frameGenParams;
-        Matrix4f fix = new Matrix4f().scaling(1.0F, -1.0F, 1.0F);
+        Matrix4d fix = new Matrix4d().scaling(1.0, -1.0, 1.0);
         if (!DepthConvention.zeroToOne()) {
-            fix.mul(new Matrix4f().translation(0.0F, 0.0F, 0.5F).scale(1.0F, 1.0F, 0.5F));
+            fix.mul(new Matrix4d().translation(0.0, 0.0, 0.5).scale(1.0, 1.0, 0.5));
         }
-        Matrix4f fixInverse = new Matrix4f(fix).invert();
-        Matrix4f viewToClip = new Matrix4f(fix).mul(DepthConvention.projectionForDepth(currentProjection));
+        Matrix4d fixInverse = new Matrix4d(fix).invert();
+        Matrix4d viewToClip = new Matrix4d(fix).mul(new Matrix4d(DepthConvention.projectionForDepth(currentProjection)));
         viewToClip.get(p, 0);
-        new Matrix4f(viewToClip).invert().get(p, 16);
-        Matrix4f clipToPrevClip = new Matrix4f(fix).mul(previousViewProjection)
-            .translate((float) delta.x, (float) delta.y, (float) delta.z)
-            .mul(new Matrix4f(currentViewProjection).invert()).mul(fixInverse);
+        new Matrix4d(viewToClip).invert().get(p, 16);
+        Matrix4d clipToPrevClip = new Matrix4d(fix).mul(new Matrix4d(previousViewProjection))
+            .translate(delta.x, delta.y, delta.z)
+            .mul(new Matrix4d(currentViewProjection).invert()).mul(fixInverse);
         clipToPrevClip.get(p, 32);
-        new Matrix4f(clipToPrevClip).invert().get(p, 48);
+        new Matrix4d(clipToPrevClip).invert().get(p, 48);
         p[64] = jitterX * DlssConfig.jitterSignX;
         p[65] = jitterY * DlssConfig.jitterSignY;
         p[66] = 1.0F / renderWidth;

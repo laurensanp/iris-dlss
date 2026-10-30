@@ -29,8 +29,71 @@ public final class ShaderPackTweaks {
     private static final Pattern BOOLEAN_DEFINE =
         Pattern.compile("^\\s*(?://\\s*)?#define\\s+([A-Za-z0-9_]+)\\s*(?://.*)?$", Pattern.MULTILINE);
 
+    /** "#ifdef TAA" and friends, alone on the line (comments after it allowed). */
+    private static final Pattern TAA_CONDITION = Pattern.compile(
+        "^\\s*#\\s*(?:ifdef\\s+(\\w+)|if\\s+defined\\s*\\(?\\s*(\\w+)\\s*\\)?)\\s*(?://.*)?$");
+    private static final Pattern FRAME_COUNTER = Pattern.compile("\\bframe(?:Time)?Counter\\b");
+
+    private static int animatedDitherBlocks;
+
     private ShaderPackTweaks() {
     }
+
+    /**
+     * Packs animate their dither (shadows, AO, volumetric light, reflections) only with their TAA on:
+     * {@code #ifdef TAA  dither = fract(dither + frameCounter * ...);  #endif}. With TAA off (DLSS does
+     * the anti-aliasing) the noise is a fixed screen pattern that DLSS can't average away and that
+     * crawls against the jittered world. Turns on just those blocks: a TAA condition whose body is at
+     * most four plain statements that each use frameCounter / frameTimeCounter and touch no position.
+     * The pack's own jitter and TAA resolve stay off. Line count is unchanged. Vitrail, per file.
+     */
+    public static List<String> animateDither(List<String> lines) {
+        if (!DlssConfig.enabled || !DlssConfig.disablePackTaa) {
+            return lines;
+        }
+        List<String> result = null;
+        for (int i = 0; i < lines.size(); i++) {
+            Matcher condition = TAA_CONDITION.matcher(lines.get(i));
+            if (!condition.matches()) {
+                continue;
+            }
+            String name = condition.group(1) != null ? condition.group(1) : condition.group(2);
+            if (!TAA_OPTIONS.contains(name)) {
+                continue;
+            }
+            int statements = 0;
+            boolean animatesOnly = true;
+            int end = -1;
+            for (int j = i + 1; j < lines.size() && j <= i + 8; j++) {
+                String body = lines.get(j).trim();
+                if (body.startsWith("#")) {
+                    end = body.matches("#\\s*endif\\b.*") ? j : -1;
+                    break;
+                }
+                if (body.isEmpty() || body.startsWith("//")) {
+                    continue;
+                }
+                statements++;
+                if (!FRAME_COUNTER.matcher(body).find() || body.contains("gl_Position") || body.contains("Jitter")
+                    || !body.endsWith(";")) {
+                    animatesOnly = false;
+                }
+            }
+            if (end < 0 || statements == 0 || statements > 4 || !animatesOnly) {
+                continue;
+            }
+            if (result == null) {
+                result = new ArrayList<>(lines);
+            }
+            result.set(i, "#if 1 // iris-dlss: dither animated for DLSS (" + name + " is off)");
+            if (animatedDitherBlocks++ < 3) {
+                IrisDlss.LOGGER.info("Iris DLSS: animating the pack's dither without its {}: {}", name,
+                    lines.get(i + 1).trim());
+            }
+        }
+        return result != null ? result : lines;
+    }
+
 
     public static void disablePackTaa(Path gameDir) {
         try {

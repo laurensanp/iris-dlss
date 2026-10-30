@@ -3,8 +3,10 @@ package com.irisdlss.mixin;
 import com.irisdlss.DevScreens;
 import com.irisdlss.DevTest;
 import com.irisdlss.DlssBenchmark;
+import com.irisdlss.EntityMotion;
 import com.irisdlss.FrameStats;
 import com.irisdlss.GpuAllocationStats;
+import com.irisdlss.MemoryCheck;
 import com.irisdlss.VulkanPresenter;
 import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
@@ -23,6 +25,8 @@ public class MinecraftMixin {
         DlssBenchmark.frame();
         DevScreens.frame();
         GpuAllocationStats.frame();
+        EntityMotion.frameStart();
+        MemoryCheck.frame();
     }
 
     @Inject(method = "tick", at = @At("TAIL"))
