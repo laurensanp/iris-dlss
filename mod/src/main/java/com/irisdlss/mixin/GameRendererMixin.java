@@ -1,6 +1,7 @@
 package com.irisdlss.mixin;
 
 import com.irisdlss.DlssUpscaler;
+import com.irisdlss.WorldAnchoredHud;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
@@ -143,6 +144,15 @@ public abstract class GameRendererMixin {
         target = "Lcom/mojang/blaze3d/systems/RenderSystem;setProjectionMatrix(Lcom/mojang/renderpearl/api/buffers/GpuBufferSlice;Lcom/mojang/blaze3d/ProjectionType;)V"))
     private void irisdlss$captureProjection(CallbackInfo ci, @Local Matrix4f projectionMatrix) {
         DlssUpscaler.captureProjection(projectionMatrix);
+    }
+
+    /** Right before the GUI: world-anchored HUD (waypoint icons) onto the picture frame generation moves. */
+    @Inject(method = "render", at = @At(value = "INVOKE",
+        target = "Lnet/minecraft/client/gui/render/GuiRenderer;render()V"))
+    private void irisdlss$worldAnchoredHud(CallbackInfo ci) {
+        if (this.irisdlss$frameActive) {
+            WorldAnchoredHud.renderBeforeGui();
+        }
     }
 
     /** End of the world phase (after the pack's composite/final and vanilla post effects): upscale, then GUI. */

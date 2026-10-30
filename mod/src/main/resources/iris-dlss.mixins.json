@@ -25,7 +25,8 @@
     "VulkanDeviceMixin",
     "VulkanGpuSamplerMixin",
     "VulkanGpuSurfaceMixin",
-    "VulkanInstanceMixin"
+    "VulkanInstanceMixin",
+    "WWaypointsOverlayMixin"
   ],
   "injectors": {
     "defaultRequire": 1
