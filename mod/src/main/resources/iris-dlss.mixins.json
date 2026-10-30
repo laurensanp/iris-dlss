@@ -2,6 +2,7 @@
   "required": true,
   "minVersion": "0.8",
   "package": "com.irisdlss.mixin",
+  "plugin": "com.irisdlss.LunarCompat",
   "compatibilityLevel": "JAVA_25",
   "client": [
     "CameraMixin",

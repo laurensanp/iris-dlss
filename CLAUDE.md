@@ -79,8 +79,16 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   the mods folder first (`mods-backup-<date>-<what>/`), then replace jars with the same names, no duplicates.
 - Lunar's "Multi-Threaded Rendering" (`decoupledPresent` in `~/.lunarclient/settings/game/<profile>/performance.json`)
   acquires/presents the swapchain itself; the mod detects it and keeps the game's output (no FG). Must be off
-  (`{"version":38,"decoupledPresent":false}`, edit only while the game is closed). Presenting from both swapchains
-  stalls in fullscreen.
+  (`{"version":38,"decoupledPresent":false}`). Presenting from both swapchains stalls in fullscreen.
+- Since 0.7.2 `LunarCompat` (mixin config plugin of iris-dlss, `acceptTargets` = after all configs are prepared,
+  before any mixin applies) does both Lunar fixes itself: sets `decoupledPresent=false` in the active profile
+  (`profile_manager.json` `active`; Lunar reads the file ~10 s later, after `[LC] Starting Lunar client`) and
+  removes the @Redirect from Vitrail's `VulkanCommandEncoderMixin.vitrail$afterPass` class node (MixinTransformer
+  .processor -> configs -> MixinInfo.state.classNode, same fields in Lunar's Mixin 0.8.x in genesis.jar) when another
+  mixin redirects the barrier or Lunar is detected (`mixins.ichor.*` configs / game dir in `.lunarclient`).
+  `lunarCompat=false` turns it off. Dev test: `-Diris-dlss.forceLunarCompat=true -Diris-dlss.lunarDir=<fake dir>`
+  via JAVA_TOOL_OPTIONS, `-Dmixin.debug.export=true` and check `run/.mixin.out/.../VulkanCommandEncoder.class`.
+  Verified in dev 2026-10-30; not yet in Lunar (there the plain Vitrail jar replaces the `-lunarfix` one).
 - The user's Solas settings: `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap tweaks).
 - Last install 2026-10-27 (Vitrail switch): `iris-dlss-0.7.0+mc26.3.jar` + `vitrail-0.13.0-beta+mc26.3.jar` added,
   fork jar and iris-dlss 0.6.0 removed, `voxy-0.2.20-beta.jar` / `voxy-vulkan-*.jar` renamed `.disabled`, Solas

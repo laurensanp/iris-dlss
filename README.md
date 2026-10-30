@@ -66,29 +66,22 @@ Updating: close the game, replace the jars, start again. Your settings stay in
 Works in Lunar Client profiles that run Fabric for 26.3 (put the jars into the profile's `mods`
 folder while the game is closed; Lunar ships its own Sodium, Fabric API and Mod Menu, keep those).
 
-**Turn off Lunar's "Multi-Threaded Rendering"**, otherwise Frame Generation never starts: Lunar then
-acquires and presents the game's frames on its own threads, and the DLSS presenter cannot take over
-(the DLSS settings show "turn off Lunar's Multi-Threaded Rendering"). In game: Right Shift → Settings →
-search "Multi-Threaded". Or, with Lunar's game closed, set it in
-`%USERPROFILE%\.lunarclient\settings\game\<profile>\performance.json`:
+Since 0.7.2 the mod handles Lunar's two conflicts itself (both logged at start, lines with `Iris DLSS:`);
+`lunarCompat=false` in `config/iris-dlss.properties` turns that off:
 
-```json
-{"version":38,"decoupledPresent":false}
-```
-
-(keep the `version` your file already has). Lunar's log then shows `[LC] Disabled threaded present`.
-
-**Vitrail crashes Lunar at start** (`Critical injection failure: Redirector lunar$maybeBarrier ... VulkanCommandEncoder`):
-Lunar and Vitrail both redirect the same barrier call in RenderPearl's command encoder. Vitrail's redirect
-only narrows the barrier after its own passes, so removing it is safe (the game's full barrier stays).
-[`tools/PatchVitrail.java`](tools/PatchVitrail.java) makes a copy of the Vitrail jar without it (needs JDK 25
-and ASM 9, e.g. from the Gradle cache):
-
-```bat
-java -cp asm-9.10.1.jar;asm-tree-9.10.1.jar tools\PatchVitrail.java vitrail-0.13.0-beta+mc26.3.jar vitrail-0.13.0-beta+mc26.3-lunarfix.jar
-```
-
-Use the `-lunarfix` jar instead of the original in Lunar's `mods`. Tested with Vitrail 0.13.0-beta.
+* **Lunar's "Multi-Threaded Rendering" is turned off** in the active settings profile
+  (`%USERPROFILE%\.lunarclient\settings\game\<profile>\performance.json`, `"decoupledPresent":false`) before
+  Lunar reads it. With it on, Lunar acquires and presents the game's frames on its own threads and Frame
+  Generation cannot start (the DLSS settings then show "turn off Lunar's Multi-Threaded Rendering"). If you
+  turn it back on in game, it is off again after the next start.
+* **Vitrail no longer crashes Lunar at start** (`Critical injection failure: Redirector lunar$maybeBarrier ...
+  VulkanCommandEncoder`): Lunar and [Vitrail](https://github.com/avpbynf/Vitrail-Shaders) (LGPL-3.0, by its
+  authors, not part of this mod) both redirect the same barrier call in RenderPearl's command encoder. Vitrail's
+  redirect only narrows the barrier after its own passes, so the mod drops that one redirect while the game
+  starts (only when another mod redirects the same call, i.e. in Lunar); the game's full barrier stays. Use the
+  normal Vitrail jar from Modrinth. Tested with Vitrail 0.13.0-beta.
+  ([`tools/PatchVitrail.java`](tools/PatchVitrail.java) still makes a patched copy of the Vitrail jar, for
+  iris-dlss 0.7.1 and older.)
 
 **FPS drop after a few minutes that recovers later**: give the game more memory in Lunar's launcher
 (Settings → Allocated Memory, e.g. 8 GB). With 3 GB the Java heap fills up with shader packs and maps and the
