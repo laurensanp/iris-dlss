@@ -25,7 +25,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   vulkan-v0.1.0/v0.2.0 belong to that era.
 - History of iris-dlss keeps Kiwious' Claude co-author lines (user decided not to rewrite).
 
-## Status (2026-10-27)
+## Status (2026-10-30)
 
 - **DLSS with Vitrail works** (Vitrail 0.13.0-beta, Solas 3.8, verified with screenshots, an FG capture and a
   benchmark): Vitrail draws the world into the main target (reverse-Z depth kept), takes the projection the game
@@ -100,19 +100,14 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   (independent flip); take in-game F2 screenshots instead. Launcher can't be driven by CDP (main window hidden); clicking via
   user32 SetCursorPos/mouse_event + CopyFromScreen screenshots works.
 - The user's Solas settings: `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap tweaks).
-- Last install 2026-10-27 (Vitrail switch): `iris-dlss-0.7.0+mc26.3.jar` + `vitrail-0.13.0-beta+mc26.3.jar` added,
-  fork jar and iris-dlss 0.6.0 removed, `voxy-0.2.20-beta.jar` / `voxy-vulkan-*.jar` renamed `.disabled`, Solas
-  `BLOOM=true` (was false; with DOF on Vitrail can't compile composite14 otherwise), `vitrail/pack.txt` selects
-  Solas. Old files in `mods-backup-2026-10-27-vitrail/`. Same setup tested in dev with Lunar's Sodium 0.9.3-beta.1;
-  First Lunar start crashed: Lunar's mixin `lunar$maybeBarrier` and Vitrail's `VulkanCommandEncoderMixin.vitrail$afterPass`
-  both @Redirect `memoryBarrier` in `VulkanCommandEncoder.submitRenderPass` (critical injection failure, no error
-  handler can catch it). Fix: `tools/PatchVitrail.java` (ASM) drops Vitrail's @Redirect (it only narrows the barrier
-  after Vitrail's own passes); Lunar now has `vitrail-0.13.0-beta+mc26.3-lunarfix.jar` (patched jar in `../vitrail-dl`,
-  local only, never publish). Patched jar tested in dev (pack draws, no errors); waiting for the next Lunar start.
+- Lunar history: 2026-10-27 switch to Vitrail (Solas `BLOOM=true` there: with DOF on Vitrail can't compile
+  composite14 otherwise; voxy jars renamed `.disabled`; old files in `mods-backup-2026-10-27-vitrail/`). The first
+  start crashed (Lunar's `lunar$maybeBarrier` and Vitrail's `vitrail$afterPass` both @Redirect `memoryBarrier` in
+  `VulkanCommandEncoder.submitRenderPass`); until 0.7.2 that was worked around with `tools/PatchVitrail.java` and a
+  local `-lunarfix` Vitrail jar (`../vitrail-dl`, never publish), since 0.7.2 `LunarCompat` does it at runtime.
   Could be reported to Vitrail (use @WrapOperation instead of @Redirect); ask the user first.
-
-- Since 2026-10-27 17:05 Lunar gets `iris-dlss-0.7.1+mc26.3.jar` (swapped in when the game closes; old jars in
-  `mods-backup-2026-10-27-recording/`), `diagnosticRecording=false` there again.
+- Current Lunar install (2026-10-30): surv has `iris-dlss-0.7.2+mc26.3.jar` + plain `vitrail-0.13.0-beta+mc26.3.jar`,
+  `diagnosticRecording=false`; Lunar's active settings profile is `Default` (`DLSS` = empty test profile).
 
 ## Build & test
 
@@ -152,11 +147,12 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 
 ## Releases
 
-`"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jar> -R laurensanp/iris-dlss --prerelease` (gh is
-logged in as laurensanp). v0.7.0 (2026-10-27, first with Vitrail): `iris-dlss-0.7.0+mc26.3.jar` +
+`"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jars> -R laurensanp/iris-dlss --title "Iris DLSS Bridge
+<version> (Minecraft 26.3)" --latest` (gh is logged in as laurensanp; up to 0.7.1 they were `--prerelease`). v0.7.0 (2026-10-27, first with Vitrail): `iris-dlss-0.7.0+mc26.3.jar` +
 `voxy-vulkan-0.1.1+mc26.3.jar`; Vitrail is never attached (link to Modrinth + `tools/PatchVitrail.java` for Lunar).
 v0.7.1 (2026-10-27): pacing without VSync, vertex buffer reuse, diagnosticRecording (same voxy-vulkan 0.1.1
-attached). v0.7.2 (2026-10-30): LunarCompat (plain Vitrail jar in Lunar, threaded present off); full release marked "Latest" (user asked), not a prerelease. v0.5.0/v0.6.0 notes start with an "Outdated, needs the archived fork" line. Next release: bump `version` in
+attached). v0.7.2 (2026-10-30): LunarCompat (plain Vitrail jar in Lunar, threaded present off); full release marked "Latest" (user asked). Unreleased since: `lunarCompat` is kept in
+`iris-dlss.properties` (0.7.2's `DlssConfig.save` dropped the key, so `lunarCompat=false` held for one start only). v0.5.0/v0.6.0 notes start with an "Outdated, needs the archived fork" line. Next release: bump `version` in
 `mod/build.gradle` (and `voxy-vulkan/build.gradle` if it changed), README notes, keep the asset names.
 
 ## Working with the user

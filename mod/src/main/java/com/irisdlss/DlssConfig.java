@@ -160,6 +160,8 @@ public final class DlssConfig {
     public static Overlay overlay = Overlay.OFF;
     /** Java Flight Recording of the last minutes, written to iris-dlss/recordings when the game closes (config file only). */
     public static boolean diagnosticRecording = false;
+    /** Lunar Client fixes at start (config file only, read early by {@link LunarCompat}). */
+    public static boolean lunarCompat = true;
 
     public enum Overlay {
         OFF("Off", "off"),
@@ -205,6 +207,7 @@ public final class DlssConfig {
         disablePackTaa = Boolean.parseBoolean(p.getProperty("disablePackTaa", "true"));
         overlay = parse(Overlay.values(), p.getProperty("overlay"), Overlay.OFF);
         diagnosticRecording = Boolean.parseBoolean(p.getProperty("diagnosticRecording", "false"));
+        lunarCompat = !"false".equalsIgnoreCase(p.getProperty("lunarCompat", "true").trim());
         save();
     }
 
@@ -235,6 +238,9 @@ public final class DlssConfig {
             writer.write("# true: records the last 10 minutes (Java Flight Recorder) into iris-dlss/recordings when the game\n");
             writer.write("# closes, to find what makes the frame rate drop. Costs ~1-2 % while on.\n");
             writer.write("diagnosticRecording=" + diagnosticRecording + "\n");
+            writer.write("# Lunar Client: true turns off its Multi-Threaded Rendering (needed for Frame Generation) and drops\n");
+            writer.write("# Vitrail's barrier redirect that clashes with Lunar's. Read when the game starts.\n");
+            writer.write("lunarCompat=" + lunarCompat + "\n");
         } catch (IOException e) {
             IrisDlss.LOGGER.warn("Could not write {}", file, e);
         }
