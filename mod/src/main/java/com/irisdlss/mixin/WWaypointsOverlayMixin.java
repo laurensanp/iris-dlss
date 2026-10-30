@@ -6,6 +6,8 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.Unique;
@@ -33,6 +35,27 @@ public class WWaypointsOverlayMixin {
     @Unique
     private static Method irisdlss$render;
 
+    @Unique
+    private static Method irisdlss$waypoints;
+    @Unique
+    private static Method irisdlss$position;
+
+    /** Block centres of the manager's waypoints, for the icons' motion vectors. */
+    @Unique
+    private static void irisdlss$collectAnchors(Object manager) throws ReflectiveOperationException {
+        if (irisdlss$waypoints == null) {
+            irisdlss$waypoints = manager.getClass().getMethod("getWaypoints");
+        }
+        for (Object waypoint : (Iterable<?>) irisdlss$waypoints.invoke(manager)) {
+            if (irisdlss$position == null) {
+                irisdlss$position = waypoint.getClass().getMethod("getPosition");
+            }
+            if (irisdlss$position.invoke(waypoint) instanceof BlockPos pos) {
+                WorldAnchoredHud.addAnchor(Vec3.atCenterOf(pos));
+            }
+        }
+    }
+
     @Inject(method = "render", at = @At("HEAD"), cancellable = true, require = 0, remap = false)
     private static void irisdlss$intoWorldLayer(@Coerce Object graphics, DeltaTracker delta, @Coerce Object manager,
         @Coerce Object config, CallbackInfo ci) {
@@ -58,6 +81,7 @@ public class WWaypointsOverlayMixin {
             }
             irisdlss$render.invoke(null, irisdlss$graphics.newInstance(WorldAnchoredHud.extractor()), delta, manager,
                 config);
+            irisdlss$collectAnchors(manager);
             ci.cancel();
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             irisdlss$failed = true;

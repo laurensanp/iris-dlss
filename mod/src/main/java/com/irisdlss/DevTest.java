@@ -17,6 +17,8 @@ public final class DevTest {
     private static final int CAPTURE_TICKS = Integer.getInteger("iris-dlss.testTicks", 200);
     /** -Diris-dlss.testShots=N: screenshots on N ticks in a row (dlss-test.png, dlss-test-1.png, ...). */
     private static final int SHOTS = Integer.getInteger("iris-dlss.testShots", 1);
+    /** -Diris-dlss.captureTick=N: frame-generation capture (see VulkanPresenter) at client tick N. */
+    private static final int CAPTURE_TICK = Integer.getInteger("iris-dlss.captureTick", -1);
 
     private static int ticks;
 
@@ -38,6 +40,9 @@ public final class DevTest {
             for (String command : REPEAT.split(";")) {
                 minecraft.player.connection.sendCommand(command.trim());
             }
+        }
+        if (ticks == CAPTURE_TICK) {
+            VulkanPresenter.captureRequested = true;
         }
         if (PITCH != null) {
             minecraft.player.setXRot(Float.parseFloat(PITCH));

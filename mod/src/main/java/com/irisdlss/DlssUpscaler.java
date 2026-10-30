@@ -44,6 +44,8 @@ import org.lwjgl.system.MemoryStack;
 public final class DlssUpscaler {
 
     private static final String NAMESPACE = "iris-dlss";
+    /** Rectangles the icon motion pass takes per frame. */
+    private static final int ICON_RECTS = 64;
 
     private static final String VERTEX_SHADER = """
         #version 330
@@ -131,6 +133,32 @@ public final class DlssUpscaler {
         }
         """.formatted(EntityMotion.MAX * EntityMotion.VEC4S);
 
+    // World-anchored HUD (waypoint icons) drawn into the picture frame generation moves: inside their
+    // rectangles (render pixels, memory rows) the motion vectors are replaced by the screen motion of
+    // the waypoint they belong to. The background behind a small icon moves differently (near terrain
+    // while the waypoint is far away) and would drag the icon around in the generated frames.
+    private static final String ICON_MOTION_SHADER = """
+        #version 330
+        #extension GL_ARB_separate_shader_objects : require
+        layout(std140) uniform IconInfo {
+            int RectCount;
+            vec4 Rects[%1$d];
+            vec4 Motions[%1$d];
+        };
+        layout(location = 0) out vec2 outMotion;
+        void main() {
+            vec2 p = gl_FragCoord.xy;
+            for (int i = 0; i < RectCount; i++) {
+                vec4 r = Rects[i];
+                if (p.x >= r.x && p.y >= r.y && p.x < r.z && p.y < r.w) {
+                    outMotion = Motions[i].xy;
+                    return;
+                }
+            }
+            discard;
+        }
+        """.formatted(ICON_RECTS);
+
     // Robust contrast-adaptive sharpening (after AMD FidelityFX FSR 1 RCAS): restores the crispness
     // of native rendering that the temporal reconstruction softens; strength 0..1. The lobe is limited
     // so no pixel leaves its neighbours' range, and it is halved where the centre stands out from all
@@ -185,6 +213,7 @@ public final class DlssUpscaler {
                 case NAMESPACE + ":fullscreen" -> VERTEX_SHADER;
                 case NAMESPACE + ":motion_vectors" -> MOTION_SHADER;
                 case NAMESPACE + ":sharpen" -> SHARPEN_SHADER;
+                case NAMESPACE + ":icon_motion" -> ICON_MOTION_SHADER;
                 default -> null;
             };
         }
@@ -210,6 +239,10 @@ public final class DlssUpscaler {
             .withUniform("SharpenInfo", UniformType.UNIFORM_BUFFER).build(),
         ColorTargetState.DEFAULT);
     private static final int MOTION_INFO_SIZE = motionInfoSize();
+    private static final RenderPipeline ICON_MOTION_PIPELINE = fullscreenPipeline("icon_motion",
+        BindGroupLayout.builder().withUniform("IconInfo", UniformType.UNIFORM_BUFFER).build(),
+        new ColorTargetState(Optional.empty(), GpuFormat.RG16_FLOAT, ColorTargetState.WRITE_ALL));
+    private static final int ICON_INFO_SIZE = iconInfoSize();
     private static final int SHARPEN_INFO_SIZE = new Std140SizeCalculator().putFloat().putIVec2().get();
 
     /** Dev option -Diris-dlss.debugLog=true: camera inputs of every upscaled frame. */
@@ -234,6 +267,12 @@ public final class DlssUpscaler {
 
     private static CompiledRenderPipeline motionPipeline;
     private static CompiledRenderPipeline sharpenPipeline;
+    private static CompiledRenderPipeline iconMotionPipeline;
+    /** This frame's camera, kept for the icon motion pass after the GUI phase started. */
+    private static final Matrix4f iconCurrent = new Matrix4f();
+    private static final Matrix4f iconPrevious = new Matrix4f();
+    private static Vec3 iconCurrentPosition = Vec3.ZERO;
+    private static Vec3 iconPreviousPosition = Vec3.ZERO;
     private static GpuTexture motionTexture;
     private static GpuTextureView motionView;
     private static GpuTexture outputTexture;
@@ -270,6 +309,14 @@ public final class DlssUpscaler {
     private static boolean resetFrameGen = true;
 
     private DlssUpscaler() {
+    }
+
+    private static int iconInfoSize() {
+        Std140SizeCalculator size = new Std140SizeCalculator().putInt();
+        for (int i = 0; i < 2 * ICON_RECTS; i++) {
+            size.putVec4();
+        }
+        return size.get();
     }
 
     private static int motionInfoSize() {
@@ -338,6 +385,85 @@ public final class DlssUpscaler {
         }
         RenderSystem.getDevice().createCommandEncoder().copyTextureToTexture(full.getColorTexture(), outputTexture,
             0, 0, 0, 0, 0, outputWidth, outputHeight);
+    }
+
+    /**
+     * GUI phase: world-anchored HUD rectangles (output pixels, top-left origin: x, y, width, height)
+     * get the screen motion of their nearest anchor (world positions) in the motion vectors frame
+     * generation reads.
+     */
+    public static void patchIconMotion(java.util.List<float[]> rects, java.util.List<Vec3> anchors) {
+        if (rects.isEmpty() || anchors.isEmpty() || iconMotionPipeline == null || motionView == null
+            || !frameGenParamsReady) {
+            return;
+        }
+        // Each anchor: where it is now (output pixels, top-left) and its motion (render pixels).
+        java.util.List<float[]> projected = new java.util.ArrayList<>();
+        org.joml.Vector4f cur = new org.joml.Vector4f();
+        org.joml.Vector4f prev = new org.joml.Vector4f();
+        for (Vec3 anchor : anchors) {
+            iconCurrent.transform((float) (anchor.x - iconCurrentPosition.x), (float) (anchor.y - iconCurrentPosition.y),
+                (float) (anchor.z - iconCurrentPosition.z), 1.0F, cur);
+            iconPrevious.transform((float) (anchor.x - iconPreviousPosition.x),
+                (float) (anchor.y - iconPreviousPosition.y), (float) (anchor.z - iconPreviousPosition.z), 1.0F, prev);
+            if (cur.w <= 1e-4F || prev.w <= 1e-4F) {
+                continue;
+            }
+            float u = cur.x / cur.w * 0.5F + 0.5F;
+            float v = cur.y / cur.w * 0.5F + 0.5F;
+            float pu = prev.x / prev.w * 0.5F + 0.5F;
+            float pv = prev.y / prev.w * 0.5F + 0.5F;
+            projected.add(new float[] {u * outputWidth, (1.0F - v) * outputHeight, (pu - u) * renderWidth,
+                (pv - v) * renderHeight});
+        }
+        if (projected.isEmpty()) {
+            return;
+        }
+        float sx = (float) renderWidth / outputWidth;
+        float sy = (float) renderHeight / outputHeight;
+        int count = Math.min(rects.size(), ICON_RECTS);
+        CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+        int alignment = RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment();
+        GpuBufferSlice info;
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            Std140Builder data = Std140Builder.onStack(stack, ICON_INFO_SIZE).putInt(count);
+            float[][] motions = new float[ICON_RECTS][];
+            for (int i = 0; i < ICON_RECTS; i++) {
+                if (i >= count) {
+                    data.putVec4(0.0F, 0.0F, 0.0F, 0.0F);
+                    continue;
+                }
+                float[] r = rects.get(i);
+                // The label stands above its anchor: nearest anchor, vertical distance counted half.
+                float cx = r[0] + r[2] * 0.5F;
+                float cy = r[1] + r[3] * 0.5F;
+                float[] best = null;
+                float bestCost = Float.MAX_VALUE;
+                for (float[] a : projected) {
+                    float dx = cx - a[0];
+                    float dy = (cy - a[1]) * 0.5F;
+                    float cost = dx * dx + dy * dy;
+                    if (cost < bestCost) {
+                        bestCost = cost;
+                        best = a;
+                    }
+                }
+                motions[i] = best;
+                // Memory rows count from the bottom (OpenGL orientation); a little margin around each.
+                data.putVec4((r[0] - 2.0F) * sx, (outputHeight - r[1] - r[3] - 2.0F) * sy,
+                    (r[0] + r[2] + 2.0F) * sx, (outputHeight - r[1] + 2.0F) * sy);
+            }
+            for (int i = 0; i < ICON_RECTS; i++) {
+                float[] m = motions[i];
+                data.putVec4(m != null ? m[2] : 0.0F, m != null ? m[3] : 0.0F, 0.0F, 0.0F);
+            }
+            info = encoder.transientMemory().uploadGpu(data.get(), alignment, GpuBuffer.USAGE_UNIFORM);
+        }
+        try (RenderPass pass = encoder.createRenderPass(() -> "DLSS icon motion", motionView, Optional.empty())) {
+            pass.setPipeline(iconMotionPipeline);
+            pass.setUniform("IconInfo", info);
+            pass.draw(3, 1, 0, 0);
+        }
     }
 
     /** Frame generation inputs of the last frame: depth, motion vectors, hudless output; or null. */
@@ -421,6 +547,7 @@ public final class DlssUpscaler {
             }
             motionPipeline = compile(MOTION_PIPELINE);
             sharpenPipeline = compile(SHARPEN_PIPELINE);
+            iconMotionPipeline = compile(ICON_MOTION_PIPELINE);
             if (motionPipeline == null || sharpenPipeline == null) {
                 disable("could not compile the motion vector / sharpening shaders");
                 return false;
@@ -723,6 +850,10 @@ public final class DlssUpscaler {
             }
         }
 
+        iconCurrent.set(currentViewProjection);
+        iconPrevious.set(previousViewProjection);
+        iconCurrentPosition = currentPosition;
+        iconPreviousPosition = previousPosition;
         buildFrameGenParams(currentViewProjection, delta);
         previousViewProjection.set(currentViewProjection);
         previousPosition = currentPosition;

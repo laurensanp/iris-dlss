@@ -30,6 +30,8 @@ public final class VulkanPresenter {
     /** Dev option -Diris-dlss.captureAt=N: capture frames after N frame-generated presents. */
     private static final int CAPTURE_AT = Integer.getInteger("iris-dlss.captureAt", -1);
     private static int frameGeneratedPresents;
+    /** Set by DevTest at -Diris-dlss.captureTick: capture at the next frame-generated present. */
+    public static volatile boolean captureRequested;
     /** Another mod or client acquires the swapchain images itself (see foreignSwapchain). */
     private static boolean foreignSwapchain;
     private static int foreignFrames;
@@ -92,7 +94,8 @@ public final class VulkanPresenter {
             fg = DlssUpscaler.takeFrameGenParams();
             fgImages = fg != null ? DlssUpscaler.frameGenImages() : null;
         }
-        if (fgImages != null && frameGeneratedPresents++ == CAPTURE_AT) {
+        if (fgImages != null && (frameGeneratedPresents++ == CAPTURE_AT || captureRequested)) {
+            captureRequested = false;
             java.nio.file.Path dir = IrisDlss.nativeDir.resolve("captures");
             try {
                 java.nio.file.Files.createDirectories(dir);

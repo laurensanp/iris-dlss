@@ -288,8 +288,10 @@ submit signals a timeline semaphore ──────────────�
 ## Known issues
 
 * With Frame Generation, HUD elements only update on rendered frames. wWaypoints' in-world icons are drawn
-  as part of the picture instead, so they move smoothly with the world; other mods' world markers (e.g.
-  Xaero's in-world waypoints) still update at the rendered frame rate.
+  as part of the picture instead, with the motion of their waypoint, so they move smoothly with the world;
+  other mods' world markers (e.g. Xaero's in-world waypoints) still update at the rendered frame rate.
+  wWaypoints places its icons with its own FOV math, which can drift slightly against the world away from
+  the screen centre (also without DLSS).
 * Joining a world: Vitrail reads and compiles the shader pack a second time so block tags resolve; for packs
   without block tags (e.g. Solas) the mod skips that second read, which shortens the join hitch.
 * Motion vectors follow the camera and moving entities (position and body turn, nearest 32), not animated
