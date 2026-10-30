@@ -16,6 +16,7 @@
     "PreferredGraphicsApiMixin",
     "VideoSettingsScreenMixin",
     "VitrailDitherMixin",
+    "VitrailJoinReloadMixin",
     "VitrailRenderScaleMixin",
     "VulkanBackendMixin",
     "VulkanCommandEncoderAccessor",

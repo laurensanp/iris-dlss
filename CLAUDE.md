@@ -158,6 +158,14 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   slow turns are real fogged trees (same in `-Diris-dlss.bypass=true` raw frames, DLAA only). All presets alike.
 - Dev: `-Diris-dlss.testShots=N` (N screenshots on consecutive ticks), `-Diris-dlss.bypass=true` (DLAA: raw frame
   instead of DLSS), `-Diris-dlss.debugSpin=deg` with `-PdlssDebug=still` (any spin speed), debugLog prints FG params.
+- Join hitch (Lunar `Pause - Unknown` 1.5 s + ~20 x 50-800 ms after joining): JFR showed Vitrail's
+  `PackChoice.reloadIfTheWorldMoved` re-reading/compiling the whole pack because the registry stamp changed (only
+  needed for block tags `%ns:path` in block.properties). `VitrailJoinReloadMixin` skips it (PackDefines.settle()
+  by reflection) when that is the only reason and the pack names no tag (`ShaderPackTweaks.selectedPackUsesBlockTags`);
+  dimension change / DH / LabPBR still reload. Solas has no tags. Remaining join cost: Vitrail pipeline warm-up
+  (`skipLevelWhilePackWarms`), chunk loading. Window resize recreates DLSS/FG (150-250 ms, expected).
+- Presenter alone costs nothing (dev, FG off: presenter 133-135 fps vs presenter off 136); FG costs ~3.3 ms per
+  rendered frame (benchmark 89.8 vs 128.8 rendered).
 - `MemoryCheck`: toast when max heap < 4 GB or heap >= 90 % for 3 checks 10 s apart.
 - Dev: `-PdlssDebug=still`, `-PcaptureAt=N`, `-PtestRepeat="cmd;cmd"` (every tick), JAVA_TOOL_OPTIONS
   `-Diris-dlss.captureFrames=12`. Dev `options.txt` has `pauseOnLostFocus:false` (else the pause menu stops FG and
