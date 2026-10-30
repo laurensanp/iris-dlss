@@ -320,6 +320,26 @@ public final class DlssUpscaler {
         return outputTexture != null;
     }
 
+    /**
+     * GUI phase, after something world-anchored was drawn over the upscaled picture (Xaero's in-world
+     * waypoints): copy the picture into the "hudless" image again, so frame generation moves those
+     * pixels with the world in its in-between frames instead of holding them as HUD (which updates at
+     * the rendered rate only, and looks like lagging icons).
+     */
+    public static void refreshHudless() {
+        if (!isActive() || outputTexture == null || !frameGenParamsReady || !VulkanPresenter.isRunning()
+            || !DlssConfig.frameGeneration) {
+            return;
+        }
+        RenderTarget full = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+        if (full == null || full.getColorTexture() == null || full.width != outputWidth
+            || full.height != outputHeight) {
+            return;
+        }
+        RenderSystem.getDevice().createCommandEncoder().copyTextureToTexture(full.getColorTexture(), outputTexture,
+            0, 0, 0, 0, 0, outputWidth, outputHeight);
+    }
+
     /** Frame generation inputs of the last frame: depth, motion vectors, hudless output; or null. */
     public static long[] frameGenImages() {
         if (outputView == null) {

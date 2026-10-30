@@ -105,7 +105,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   `VulkanCommandEncoder.submitRenderPass`); until 0.7.2 that was worked around with `tools/PatchVitrail.java` and a
   local `-lunarfix` Vitrail jar (`../vitrail-dl`, never publish), since 0.7.2 `LunarCompat` does it at runtime.
   Could be reported to Vitrail (use @WrapOperation instead of @Redirect); ask the user first.
-- Current Lunar install (2026-10-30): surv and dlss-test have `iris-dlss-0.7.5+mc26.3.jar` (unreleased: join-reload skip; 0.7.4 in `mods-backup-2026-10-30-075/`) + plain `vitrail-0.13.0-beta+mc26.3.jar`,
+- Current Lunar install (2026-10-30): surv and dlss-test have `iris-dlss-0.7.5+mc26.3.jar` (release; 0.7.4 in `mods-backup-2026-10-30-075/`) + plain `vitrail-0.13.0-beta+mc26.3.jar`,
   `diagnosticRecording=false`; Lunar's active settings profile is `Default` (`DLSS` = empty test profile).
 
 ## Build & test
@@ -166,6 +166,13 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   (`skipLevelWhilePackWarms`), chunk loading. Window resize recreates DLSS/FG (150-250 ms, expected).
 - Presenter alone costs nothing (dev, FG off: presenter 133-135 fps vs presenter off 136); FG costs ~3.3 ms per
   rendered frame (benchmark 89.8 vs 128.8 rendered).
+- wWaypoints (mod `wwaypoints`, ARR, in surv) icons lagged with FG (HUD = only on rendered frames). Its
+  `WaypointOverlayLabelRenderer.render(GuiGraphics shim, DeltaTracker, WaypointManager, ModConfig)` is called from
+  its own Hud.extractRenderState mixin; `WWaypointsOverlayMixin` (@Coerce, reflection) re-calls it with a shim over
+  `WorldAnchoredHud`'s own GuiRenderState while FG runs; `GameRendererMixin` renders that state with a second
+  GuiRenderer right before `GuiRenderer.render` and `DlssUpscaler.refreshHudless()` copies the picture into the
+  hudless image again. User confirmed in dev ("works"). Dev test: `wwp_add <x> <z> <y>` (client command; opens its
+  list screen). Never commit/ship its jar.
 - `MemoryCheck`: toast when max heap < 4 GB or heap >= 90 % for 3 checks 10 s apart.
 - Dev: `-PdlssDebug=still`, `-PcaptureAt=N`, `-PtestRepeat="cmd;cmd"` (every tick), JAVA_TOOL_OPTIONS
   `-Diris-dlss.captureFrames=12`. Dev `options.txt` has `pauseOnLostFocus:false` (else the pause menu stops FG and
@@ -190,6 +197,7 @@ v0.7.1 (2026-10-27): pacing without VSync, vertex buffer reuse, diagnosticRecord
 attached). v0.7.2 (2026-10-30): LunarCompat (plain Vitrail jar in Lunar, threaded present off); full release marked "Latest" (user asked). v0.7.3 (2026-10-30, Latest): `lunarCompat`
 kept in `iris-dlss.properties` (0.7.2's `DlssConfig.save` dropped the key, so `lunarCompat=false` held one start). v0.7.4 (2026-10-30, Latest): pack TAA off also when shaders start disabled, animated pack dither, RCAS
 sharpening, no jitter on join, entity motion vectors, FG matrices in double, memory notice (same voxy-vulkan 0.1.1).
+v0.7.5 (2026-10-30, Latest): wWaypoints icons move with FG, Vitrail join reload skipped for tagless packs.
 v0.5.0/v0.6.0 notes start with an "Outdated, needs the archived fork" line. Next release: bump `version` in
 `mod/build.gradle` (and `voxy-vulkan/build.gradle` if it changed), README notes, keep the asset names.
 
