@@ -92,8 +92,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   `decoupledPresent:false`, no Vitrail crash with the plain jar, presenter output, FG x2, Solas draws). Lunar
   drops INFO lines logged this early, so LunarCompat's messages don't show in Lunar's log.
 - Lunar test profile `dlss-test` (launcher profile, isolated, 26.3 Fabric): only Fabric API, Sodium 0.9.2 (added by
-  Lunar's Auto Fix), Vitrail (plain), iris-dlss 0.7.2, Solas + `vitrail/pack.txt`, world `vulkan-test`. Since 2026-10-30
-  surv runs 0.7.2 + the plain Vitrail jar (old jars in `mods-backup-2026-10-30-lunarcompat/`).
+  Lunar's Auto Fix), Vitrail (plain), iris-dlss (latest), Solas + `vitrail/pack.txt`, world `vulkan-test`. surv: see "Current Lunar install".
   Tested there 2026-10-30: no crash, no VSync FG x2 ~365/185 fps without shaders, Solas 140/72 (1280x720 window).
   surv keeps shaders off (`enabled=false`); its Vitrail toggle key is Insert (SendKeys can't send it, use
   keybd_event VK 0x2D scan 0x52 extended). Screen captures (CopyFromScreen) of the game are black without VSync
@@ -106,7 +105,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   `VulkanCommandEncoder.submitRenderPass`); until 0.7.2 that was worked around with `tools/PatchVitrail.java` and a
   local `-lunarfix` Vitrail jar (`../vitrail-dl`, never publish), since 0.7.2 `LunarCompat` does it at runtime.
   Could be reported to Vitrail (use @WrapOperation instead of @Redirect); ask the user first.
-- Current Lunar install (2026-10-30): surv has `iris-dlss-0.7.2+mc26.3.jar` + plain `vitrail-0.13.0-beta+mc26.3.jar`,
+- Current Lunar install (2026-10-30): surv and dlss-test have `iris-dlss-0.7.3+mc26.3.jar` (0.7.2 in `mods-backup-2026-10-30-073/`) + plain `vitrail-0.13.0-beta+mc26.3.jar`,
   `diagnosticRecording=false`; Lunar's active settings profile is `Default` (`DLSS` = empty test profile).
 
 ## Build & test
@@ -151,8 +150,8 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 <version> (Minecraft 26.3)" --latest` (gh is logged in as laurensanp; up to 0.7.1 they were `--prerelease`). v0.7.0 (2026-10-27, first with Vitrail): `iris-dlss-0.7.0+mc26.3.jar` +
 `voxy-vulkan-0.1.1+mc26.3.jar`; Vitrail is never attached (link to Modrinth + `tools/PatchVitrail.java` for Lunar).
 v0.7.1 (2026-10-27): pacing without VSync, vertex buffer reuse, diagnosticRecording (same voxy-vulkan 0.1.1
-attached). v0.7.2 (2026-10-30): LunarCompat (plain Vitrail jar in Lunar, threaded present off); full release marked "Latest" (user asked). Unreleased since: `lunarCompat` is kept in
-`iris-dlss.properties` (0.7.2's `DlssConfig.save` dropped the key, so `lunarCompat=false` held for one start only). v0.5.0/v0.6.0 notes start with an "Outdated, needs the archived fork" line. Next release: bump `version` in
+attached). v0.7.2 (2026-10-30): LunarCompat (plain Vitrail jar in Lunar, threaded present off); full release marked "Latest" (user asked). v0.7.3 (2026-10-30, Latest): `lunarCompat`
+kept in `iris-dlss.properties` (0.7.2's `DlssConfig.save` dropped the key, so `lunarCompat=false` held one start). v0.5.0/v0.6.0 notes start with an "Outdated, needs the archived fork" line. Next release: bump `version` in
 `mod/build.gradle` (and `voxy-vulkan/build.gradle` if it changed), README notes, keep the asset names.
 
 ## Working with the user
