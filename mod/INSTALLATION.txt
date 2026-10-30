@@ -1,4 +1,4 @@
-Iris DLSS Bridge 0.6.0 - NVIDIA DLSS + Frame Generation fuer Minecraft 26.3 (Fabric, Vulkan)
+PYRAXIS 0.6.0 - NVIDIA DLSS + Frame Generation fuer Minecraft 26.3 (Fabric, Vulkan)
 =========================================================================================
 Ausfuehrlich (englisch): https://github.com/laurensanp/iris-dlss#readme
 
