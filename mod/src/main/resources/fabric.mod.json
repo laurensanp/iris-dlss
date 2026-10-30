@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "iris-dlss",
   "version": "${version}",
-  "name": "Iris DLSS Bridge",
-  "description": "NVIDIA DLSS Super Resolution and Frame Generation for Minecraft 26.3, running inside the game's Vulkan renderer (no OpenGL). Settings: Video Settings > DLSS or Mod Menu.",
+  "name": "PYRAXIS",
+  "description": "NVIDIA DLSS Super Resolution and Frame Generation for Minecraft 26.3, integrated with the game's Vulkan renderer and Vitrail shader packs.",
   "authors": [
     "laurensanp"
   ],
