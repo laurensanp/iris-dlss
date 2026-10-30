@@ -15,6 +15,8 @@ public final class DevTest {
     private static final String REPEAT = System.getProperty("iris-dlss.testRepeat");
     private static final String PITCH = System.getProperty("iris-dlss.testPitch");
     private static final int CAPTURE_TICKS = Integer.getInteger("iris-dlss.testTicks", 200);
+    /** -Diris-dlss.testShots=N: screenshots on N ticks in a row (dlss-test.png, dlss-test-1.png, ...). */
+    private static final int SHOTS = Integer.getInteger("iris-dlss.testShots", 1);
 
     private static int ticks;
 
@@ -40,8 +42,9 @@ public final class DevTest {
         if (PITCH != null) {
             minecraft.player.setXRot(Float.parseFloat(PITCH));
         }
-        if (ticks == CAPTURE_TICKS) {
-            Screenshot.grab(minecraft.gameDirectory, "dlss-test.png", minecraft.gameRenderer.mainRenderTarget(), 1,
+        if (ticks >= CAPTURE_TICKS && ticks < CAPTURE_TICKS + SHOTS) {
+            String name = ticks == CAPTURE_TICKS ? "dlss-test.png" : "dlss-test-" + (ticks - CAPTURE_TICKS) + ".png";
+            Screenshot.grab(minecraft.gameDirectory, name, minecraft.gameRenderer.mainRenderTarget(), 1,
                 message -> IrisDlss.LOGGER.info("Iris DLSS test: {}", message.getString()));
         } else if (ticks == CAPTURE_TICKS + 40) {
             IrisDlss.LOGGER.info("Iris DLSS test: done, closing the game");
