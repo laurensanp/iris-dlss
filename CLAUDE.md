@@ -145,6 +145,12 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   with shaders off, so Solas' TAA (on by default) ran on top of DLSS once toggled on in game. Now the pack's TAA is
   written off regardless, and the Vitrail hook also comments out `#define TAA` (the pack default) while DLSS runs.
   1080p test, Solas TAA on vs off: mean edge 9.9 vs 15.5. The user's Solas has DOF=true (foreground blur).
+- Grid on leaves/sand (2026-10-30): the old CAS sharpener amplified DLSS's faint 3-px (= 2 render px at 1.5x)
+  residue ~9x (stripe metric 3.21 vs 0.37 without sharpening). Now RCAS (FSR 1, noise term halves the lobe), slider
+  mapped through sqrt (35 % -> 0.59): stripes 0.24, edge strength 16.3 (native 18.7, old CAS 21.6 incl. grid).
+  Dither animation was ruled out (`-Diris-dlss.noDitherAnimation=true` gives the same grid with CAS).
+- Shaking for ~2 s after joining: history reset for 60 frames (new level) showed the raw jitter; jitter is now 0
+  while `resetFrames > 0`.
 - `MemoryCheck`: toast when max heap < 4 GB or heap >= 90 % for 3 checks 10 s apart.
 - Dev: `-PdlssDebug=still`, `-PcaptureAt=N`, `-PtestRepeat="cmd;cmd"` (every tick), JAVA_TOOL_OPTIONS
   `-Diris-dlss.captureFrames=12`. Dev `options.txt` has `pauseOnLostFocus:false` (else the pause menu stops FG and

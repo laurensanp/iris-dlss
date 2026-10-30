@@ -55,6 +55,8 @@ public final class ShaderPackTweaks {
         if (!DlssConfig.enabled || !DlssConfig.disablePackTaa) {
             return lines;
         }
+        // Dev option -Diris-dlss.noDitherAnimation=true: compare with the pack's still dither.
+        boolean animate = !Boolean.getBoolean("iris-dlss.noDitherAnimation");
         List<String> result = null;
         for (int i = 0; i < lines.size(); i++) {
             Matcher define = TAA_DEFINE.matcher(lines.get(i));
@@ -98,7 +100,7 @@ public final class ShaderPackTweaks {
                     animatesOnly = false;
                 }
             }
-            if (end < 0 || statements == 0 || statements > 4 || !animatesOnly) {
+            if (!animate || end < 0 || statements == 0 || statements > 4 || !animatesOnly) {
                 continue;
             }
             if (result == null) {
