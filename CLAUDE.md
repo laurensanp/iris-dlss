@@ -98,6 +98,14 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   keybd_event VK 0x2D scan 0x52 extended). Screen captures (CopyFromScreen) of the game are black without VSync
   (independent flip); take in-game F2 screenshots instead. Launcher can't be driven by CDP (main window hidden); clicking via
   user32 SetCursorPos/mouse_event + CopyFromScreen screenshots works.
+- Lunar profile `DLSS Optimized` (folder `dlss-optimized`, created 2026-10-30 by inserting a row into
+  `~/.lunarclient/db/profiles.db` table `profiles` while the launcher was closed, copied from dlss-test's row,
+  allocated_memory 8192; selected via `settings/launcher.json` `settings.gameProfile`; backup in
+  `~/.lunarclient/db-backup-2026-10-30/`). Mods: iris-dlss, Sodium 0.9.3-beta.1, Vitrail, Fabric API 0.165.0, Mod
+  Menu, ImmediatelyFast, EntityCulling, FerriteCore, Dynamic FPS, Particle Core (+ Fabric Language Kotlin,
+  fzzy_config), Alternate Current, zfastnoise (+ zconfig); no Voxy. DLSS Custom 80 % + sharpen 0.5 + FG x2,
+  render distance 16 / simulation 8, mipmaps 4, Vitrail shadowdistance 12, Solas DOF off, shadowDistance 192,
+  VL_SAMPLES 8. First run singleplayer: 176-209 fps shown / 92-105 rendered with Solas.
 - The user's Solas settings: `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap tweaks).
 - Lunar history: 2026-10-27 switch to Vitrail (Solas `BLOOM=true` there: with DOF on Vitrail can't compile
   composite14 otherwise; voxy jars renamed `.disabled`; old files in `mods-backup-2026-10-27-vitrail/`). The first
