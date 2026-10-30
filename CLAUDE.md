@@ -92,8 +92,8 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   `decoupledPresent:false`, no Vitrail crash with the plain jar, presenter output, FG x2, Solas draws). Lunar
   drops INFO lines logged this early, so LunarCompat's messages don't show in Lunar's log.
 - Lunar test profile `dlss-test` (launcher profile, isolated, 26.3 Fabric): only Fabric API, Sodium 0.9.2 (added by
-  Lunar's Auto Fix), Vitrail (plain), iris-dlss 0.7.2, Solas + `vitrail/pack.txt`, world `vulkan-test`. surv stays
-  on 0.7.1 + `-lunarfix` until release. Launcher can't be driven by CDP (main window hidden); clicking via
+  Lunar's Auto Fix), Vitrail (plain), iris-dlss 0.7.2, Solas + `vitrail/pack.txt`, world `vulkan-test`. Since 2026-10-30
+  surv runs 0.7.2 + the plain Vitrail jar (old jars in `mods-backup-2026-10-30-lunarcompat/`). Launcher can't be driven by CDP (main window hidden); clicking via
   user32 SetCursorPos/mouse_event + CopyFromScreen screenshots works.
 - The user's Solas settings: `shaderpacks/Solas Shader V3.8.zip.txt` there (DOF, VL, tonemap tweaks).
 - Last install 2026-10-27 (Vitrail switch): `iris-dlss-0.7.0+mc26.3.jar` + `vitrail-0.13.0-beta+mc26.3.jar` added,
@@ -152,7 +152,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 logged in as laurensanp). v0.7.0 (2026-10-27, first with Vitrail): `iris-dlss-0.7.0+mc26.3.jar` +
 `voxy-vulkan-0.1.1+mc26.3.jar`; Vitrail is never attached (link to Modrinth + `tools/PatchVitrail.java` for Lunar).
 v0.7.1 (2026-10-27): pacing without VSync, vertex buffer reuse, diagnosticRecording (same voxy-vulkan 0.1.1
-attached). v0.5.0/v0.6.0 notes start with an "Outdated, needs the archived fork" line. Next release: bump `version` in
+attached). v0.7.2 (2026-10-30): LunarCompat (plain Vitrail jar in Lunar, threaded present off). v0.5.0/v0.6.0 notes start with an "Outdated, needs the archived fork" line. Next release: bump `version` in
 `mod/build.gradle` (and `voxy-vulkan/build.gradle` if it changed), README notes, keep the asset names.
 
 ## Working with the user
