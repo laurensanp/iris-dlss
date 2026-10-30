@@ -132,7 +132,19 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 
 - Two main targets swapped in `GameRendererMixin`: world into a DLSS-sized one, GUI into a window-sized one.
   Jitter in `CameraMixin` -> `DlssUpscaler.applyJitter`; world depth copied before the hand pass; motion vectors
-  camera-only from depth. Depth is reverse-Z (`DepthConvention`).
+  from depth: camera plus moving entities (`EntityMotion`: positions from `LevelExtractorMixin`, nearest 32 moving
+  ones as boxes in the motion shader's UBO, translation + body yaw). Depth is reverse-Z (`DepthConvention`).
+  FG matrices are built in double precision (Matrix4d); F5 perspective change resets history. Measured
+  2026-10-30 (spin capture, horizontal shift of generated vs real frames): generated frames land at 44-56 % between real ones.
+- Pack noise: Solas/BSL/Complementary animate their dither only `#ifdef TAA`; with TAA off it was a fixed screen
+  pattern that crawled under DLSS (user: "edges crawl standing still"). `VitrailDitherMixin` (IncludeExpander
+  .logicalLines) + `ShaderPackTweaks.animateDither` turn on just those blocks (<= 4 statements using
+  frameCounter/frameTimeCounter, no gl_Position/Jitter). User confirmed the jitter gone. Mipmaps / LOD bias
+  barely changed the still-frame difference afterwards (0.27-0.29 at 1080p).
+- `MemoryCheck`: toast when max heap < 4 GB or heap >= 90 % for 3 checks 10 s apart.
+- Dev: `-PdlssDebug=still`, `-PcaptureAt=N`, `-PtestRepeat="cmd;cmd"` (every tick), JAVA_TOOL_OPTIONS
+  `-Diris-dlss.captureFrames=12`. Dev `options.txt` has `pauseOnLostFocus:false` (else the pause menu stops FG and
+  the capture). Kill old test mobs first (`kill @e[type=!player]`), they persist in `vulkan-test`.
 - Benchmark costs (4060 Ti, 1080p): DLSS SR preset K ~2 ms, FG ~3 ms per rendered frame; E ~1 ms cheaper than K,
   L ~1.8 ms more, M ~0.9 ms more at Performance. Mode Custom (33-100 %) uses the closest NGX mode. Render-thread
   time goes to waiting in RenderPearl's `submit` (GPU-bound) and the presenter's `frameStart`.

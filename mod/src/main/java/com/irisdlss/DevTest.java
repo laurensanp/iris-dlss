@@ -5,13 +5,14 @@ import net.minecraft.client.Screenshot;
 
 /**
  * Dev test run, with -Diris-dlss.testWorld=name (the world is joined by DevTestWorldMixin): runs
- * -Diris-dlss.testCommands (';'-separated) after one second, holds the camera at -Diris-dlss.testPitch,
+ * -Diris-dlss.testCommands (';'-separated) after one second, -Diris-dlss.testRepeat every tick after that, holds the camera at -Diris-dlss.testPitch,
  * saves screenshots/dlss-test.png after -Diris-dlss.testTicks client ticks (default 200) and quits.
  */
 public final class DevTest {
 
     public static final String WORLD = System.getProperty("iris-dlss.testWorld");
     private static final String COMMANDS = System.getProperty("iris-dlss.testCommands");
+    private static final String REPEAT = System.getProperty("iris-dlss.testRepeat");
     private static final String PITCH = System.getProperty("iris-dlss.testPitch");
     private static final int CAPTURE_TICKS = Integer.getInteger("iris-dlss.testTicks", 200);
 
@@ -28,6 +29,11 @@ public final class DevTest {
         ticks++;
         if (ticks == 20 && COMMANDS != null) {
             for (String command : COMMANDS.split(";")) {
+                minecraft.player.connection.sendCommand(command.trim());
+            }
+        }
+        if (ticks > 20 && REPEAT != null) {
+            for (String command : REPEAT.split(";")) {
                 minecraft.player.connection.sendCommand(command.trim());
             }
         }
