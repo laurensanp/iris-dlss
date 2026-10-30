@@ -105,7 +105,7 @@ apply immediately.
 | DLSS presenter | Shows frames through its own swapchain (needed for Frame Generation, paces frames for low latency) |
 | Performance overlay | Off / FPS / Detailed, in the top left corner: fps shown and rendered, each with its 1 % low (last five seconds) |
 | Advanced: Texture LOD bias | Sharper distant textures at lower render resolutions (after a restart) |
-| Advanced: Turn off shader pack TAA | Switches the pack's own TAA off at start (it blurs on top of DLSS). With Vitrail, the pack's noise (shadows, AO, volumetric light, reflections) still changes every frame as with its TAA, so DLSS smooths it instead of showing a fixed, crawling pattern |
+| Advanced: Turn off shader pack TAA | Switches the pack's own TAA off (it blurs and jitters on top of DLSS), also for a pack that is switched on later in game. With Vitrail, the pack's noise (shadows, AO, volumetric light, reflections) still changes every frame as with its TAA, so DLSS smooths it instead of showing a fixed, crawling pattern |
 | Advanced: Hand distance, Jitter direction | Troubleshooting |
 
 F3 also shows two DLSS lines: render size → output size, and shown / rendered fps, pacing, latency.

@@ -141,6 +141,10 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   .logicalLines) + `ShaderPackTweaks.animateDither` turn on just those blocks (<= 4 statements using
   frameCounter/frameTimeCounter, no gl_Position/Jitter). User confirmed the jitter gone. Mipmaps / LOD bias
   barely changed the still-frame difference afterwards (0.27-0.29 at 1080p).
+- Softness in Lunar (2026-10-30): `ShaderPackTweaks.selectedPack` skipped packs with `enabled=false`, and surv starts
+  with shaders off, so Solas' TAA (on by default) ran on top of DLSS once toggled on in game. Now the pack's TAA is
+  written off regardless, and the Vitrail hook also comments out `#define TAA` (the pack default) while DLSS runs.
+  1080p test, Solas TAA on vs off: mean edge 9.9 vs 15.5. The user's Solas has DOF=true (foreground blur).
 - `MemoryCheck`: toast when max heap < 4 GB or heap >= 90 % for 3 checks 10 s apart.
 - Dev: `-PdlssDebug=still`, `-PcaptureAt=N`, `-PtestRepeat="cmd;cmd"` (every tick), JAVA_TOOL_OPTIONS
   `-Diris-dlss.captureFrames=12`. Dev `options.txt` has `pauseOnLostFocus:false` (else the pause menu stops FG and
