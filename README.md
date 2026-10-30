@@ -66,8 +66,8 @@ Updating: close the game, replace the jars, start again. Your settings stay in
 Works in Lunar Client profiles that run Fabric for 26.3 (put the jars into the profile's `mods`
 folder while the game is closed; Lunar ships its own Sodium, Fabric API and Mod Menu, keep those).
 
-Since 0.7.2 the mod handles Lunar's two conflicts itself (both logged at start, lines with `Iris DLSS:`);
-`lunarCompat=false` in `config/iris-dlss.properties` turns that off:
+Since 0.7.2 the mod handles Lunar's two conflicts itself when the game starts (nothing to set up, also in a
+new Lunar profile); `lunarCompat=false` in `config/iris-dlss.properties` turns that off:
 
 * **Lunar's "Multi-Threaded Rendering" is turned off** in the active settings profile
   (`%USERPROFILE%\.lunarclient\settings\game\<profile>\performance.json`, `"decoupledPresent":false`) before
@@ -168,7 +168,8 @@ runs on the PC.
 
 * **"DLSS: unavailable (…)"** in the settings or on F3: the reason is in brackets; full details in
   `logs/latest.log` (search for `Iris DLSS`).
-* **Frame Generation stays off / "Presenter starting"**: Lunar's Multi-Threaded Rendering (see above), or
+* **Frame Generation stays off / "Presenter starting"**: Lunar's Multi-Threaded Rendering was turned on during
+  this session (it is off again after a restart, see [Lunar Client](#lunar-client)), or
   an RTX 20/30 card (`NVSDK_NGX_Result_FAIL_UnableToInitializeFeature` in the log is expected there).
 * **Shader pack doesn't show**: search the log for `(Vitrail)` lines with `did not compile`; see the
   Solas notes above. Vitrail's shader screen (`I`) also shows load errors.
