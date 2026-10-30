@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src=".github/assets/pyraxis-mark.svg" alt="PYRAXIS Logo" width="110" />
-
 # PYRAXIS
 
 **Redefining Minecraft Rendering.**
