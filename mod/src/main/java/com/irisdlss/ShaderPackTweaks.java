@@ -34,7 +34,11 @@ public final class ShaderPackTweaks {
         "^\\s*#\\s*(?:ifdef\\s+(\\w+)|if\\s+defined\\s*\\(?\\s*(\\w+)\\s*\\)?)\\s*(?://.*)?$");
     private static final Pattern FRAME_COUNTER = Pattern.compile("\\bframe(?:Time)?Counter\\b");
 
+    /** An enabled "#define TAA" option line (the pack's default), comment after it allowed. */
+    private static final Pattern TAA_DEFINE = Pattern.compile("^\\s*#define\\s+(\\w+)\\s*(?://.*)?$");
+
     private static int animatedDitherBlocks;
+    private static boolean taaDefaultLogged;
 
     private ShaderPackTweaks() {
     }
@@ -53,6 +57,21 @@ public final class ShaderPackTweaks {
         }
         List<String> result = null;
         for (int i = 0; i < lines.size(); i++) {
+            Matcher define = TAA_DEFINE.matcher(lines.get(i));
+            if (define.matches() && TAA_OPTIONS.contains(define.group(1))) {
+                // The pack's TAA option defaults to on: off while DLSS runs, also for a pack picked in game
+                // (the settings file is only written at start). The option stays in the pack's screen.
+                if (result == null) {
+                    result = new ArrayList<>(lines);
+                }
+                result.set(i, "//" + lines.get(i).stripLeading());
+                if (!taaDefaultLogged) {
+                    taaDefaultLogged = true;
+                    IrisDlss.LOGGER.info("Iris DLSS: the shader pack's {} defaults to off while DLSS runs",
+                        define.group(1));
+                }
+                continue;
+            }
             Matcher condition = TAA_CONDITION.matcher(lines.get(i));
             if (!condition.matches()) {
                 continue;
@@ -154,7 +173,6 @@ public final class ShaderPackTweaks {
             }
             List<String> lines = Files.readAllLines(vitrail, StandardCharsets.UTF_8);
             String name = null;
-            boolean enabled = true;
             for (String line : lines) {
                 int eq = line.indexOf('=');
                 if (eq < 0) {
@@ -163,11 +181,10 @@ public final class ShaderPackTweaks {
                     }
                 } else if (line.substring(0, eq).trim().equals("pack")) {
                     name = line.substring(eq + 1).trim();
-                } else if (line.substring(0, eq).trim().equals("enabled")) {
-                    enabled = Boolean.parseBoolean(line.substring(eq + 1).trim());
                 }
             }
-            return name == null || name.isEmpty() || name.equals("none") || !enabled ? null : name;
+            // A disabled pack still counts: it can be switched on in game (Vitrail's toggle key).
+            return name == null || name.isEmpty() || name.equals("none") ? null : name;
         }
         Path irisConfig = gameDir.resolve("config").resolve("iris.properties");
         if (!Files.exists(irisConfig)) {
@@ -178,7 +195,7 @@ public final class ShaderPackTweaks {
             iris.load(reader);
         }
         String packName = iris.getProperty("shaderPack", "").trim();
-        if (packName.isEmpty() || !Boolean.parseBoolean(iris.getProperty("enableShaders", "true"))) {
+        if (packName.isEmpty()) {
             return null;
         }
         return packName;
