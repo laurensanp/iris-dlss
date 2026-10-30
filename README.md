@@ -1,4 +1,19 @@
-# PYRAXIS — Minecraft Rendering Enhancement
+<div align="center">
+
+<img src=".github/assets/pyraxis-mark.svg" alt="PYRAXIS Logo" width="110" />
+
+# PYRAXIS
+
+**Redefining Minecraft Rendering.**
+
+![Vulkan](https://img.shields.io/badge/Vulkan-AC162C?logo=vulkan&logoColor=white)
+![NVIDIA DLSS](https://img.shields.io/badge/NVIDIA-DLSS-76B900?logo=nvidia&logoColor=white)
+![Frame Generation](https://img.shields.io/badge/Frame-Generation-76B900?logo=nvidia&logoColor=white)
+![Vitrail](https://img.shields.io/badge/Vitrail-Shaders-7B61A8)
+
+</div>
+
+---
 
 NVIDIA **DLSS Super Resolution** and **DLSS Frame Generation** for Minecraft 26.3, running inside the
 game's own Vulkan renderer, together with **shader packs on Vulkan** through
