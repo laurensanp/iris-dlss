@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src=".github/assets/pyraxis-icon.svg" width="128" height="128" alt="PYRAXIS icon">
+
 # PYRAXIS
 
 **Redefining Minecraft Rendering.**

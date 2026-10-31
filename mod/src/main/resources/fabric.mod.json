@@ -8,10 +8,11 @@
     "laurensanp"
   ],
   "contact": {
-    "sources": "https://github.com/laurensanp/iris-dlss",
-    "issues": "https://github.com/laurensanp/iris-dlss/issues"
+    "sources": "https://github.com/laurensanp/pyraxis-render",
+    "issues": "https://github.com/laurensanp/pyraxis-render/issues"
   },
   "license": "MIT",
+  "icon": "assets/iris-dlss/icon.png",
   "environment": "client",
   "entrypoints": {
     "client": [

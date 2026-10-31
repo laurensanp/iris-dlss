@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64" role="img" aria-label="PYRAXIS">
+  <rect width="64" height="64" rx="14" fill="#17140F"/>
+  <rect x="9" y="9" width="28" height="28" rx="5" fill="none" stroke="#6B6358" stroke-width="2.5"/>
+  <rect x="18" y="18" width="28" height="28" rx="5" fill="none" stroke="#FFB547" stroke-width="2.5" stroke-dasharray="4 3.2"/>
+  <rect x="27" y="27" width="28" height="28" rx="5" fill="#FF6A3D"/>
+  <path d="M35 41h12M41 35v12" stroke="#17140F" stroke-width="3" stroke-linecap="round"/>
+</svg>
