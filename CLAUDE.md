@@ -1,6 +1,6 @@
 # SIRIS
 
-One repository (github.com/laurensanp/pyraxis-render, MIT; was laurensanp/iris-dlss, the old URL redirects; the user will rename it for SIRIS later): a Fabric mod for Minecraft 26.3 that runs DLSS Super
+One repository (github.com/laurensanp/siris, MIT; was laurensanp/iris-dlss, then pyraxis-render, old URLs redirect): a Fabric mod for Minecraft 26.3 that runs DLSS Super
 Resolution + Frame Generation inside the game's own Vulkan renderer (RenderPearl). Shader packs come from
 **Vitrail** (separate mod, modrinth `vitrail-shaders`, github avpbynf/Vitrail-Shaders, LGPL-3.0, not ours,
 never commit or ship it). `README.md` lists everything a player or developer needs and where it comes from.
@@ -233,7 +233,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 
 ## Releases
 
-`"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jars> -R laurensanp/pyraxis-render --title "SIRIS
+`"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jars> -R laurensanp/siris --title "SIRIS
 <version> (Minecraft 26.3)" --latest` (gh is logged in as laurensanp; up to 0.7.1 they were `--prerelease`). v0.7.0 (2026-10-27, first with Vitrail): `iris-dlss-0.7.0+mc26.3.jar` +
 `voxy-vulkan-0.1.1+mc26.3.jar`; Vitrail is never attached (link to Modrinth).
 v0.7.1 (2026-10-27): pacing without VSync, vertex buffer reuse, diagnosticRecording (same voxy-vulkan 0.1.1

@@ -20,7 +20,7 @@ game's own Vulkan renderer, together with **shader packs on Vulkan** through
 [Vitrail](https://modrinth.com/mod/vitrail-shaders).
 
 Status: **experimental**, personal project, Windows + NVIDIA only. Tested on an RTX 4060 Ti (driver 617,
-Windows 11) with Solas 3.8. Bug reports welcome in the [issues](https://github.com/laurensanp/pyraxis-render/issues).
+Windows 11) with Solas 3.8. Bug reports welcome in the [issues](https://github.com/laurensanp/siris/issues).
 
 The project was called *Iris DLSS Bridge* (`iris-dlss`), then *PYRAXIS*; jar, config file and log lines are now
 named `siris` too (an old `config/iris-dlss.properties` is taken over on the first start). Until 0.6.0 shader packs ran through an own Vulkan port of Iris
@@ -54,7 +54,7 @@ Mods, all in `.minecraft/mods/` (or the Lunar profile's `mods/`):
 
 | Mod | Where from | Needed for |
 |---|---|---|
-| `siris-<version>+mc26.3.jar` (this mod, NVIDIA's DLSS files inside) | [Releases](https://github.com/laurensanp/pyraxis-render/releases) | DLSS SR + FG |
+| `siris-<version>+mc26.3.jar` (this mod, NVIDIA's DLSS files inside) | [Releases](https://github.com/laurensanp/siris/releases) | DLSS SR + FG |
 | [Sodium](https://modrinth.com/mod/sodium) 0.9.x for 26.3 | Modrinth | the settings pages, Vitrail |
 | [Vitrail](https://modrinth.com/mod/vitrail-shaders) for 26.3 (tested: 0.13.0-beta) | Modrinth | shader packs on Vulkan |
 | [Fabric API](https://modrinth.com/mod/fabric-api) | Modrinth | Vitrail |
@@ -169,7 +169,7 @@ render thread, block texture colours with biome tint, fog pushed out to the LOD 
 * LODs cast no shadows.
 
 Install: Voxy 0.2.20-beta (Modrinth, needs Fabric API) and `voxy-vulkan-*.jar` (attached to the
-[releases](https://github.com/laurensanp/pyraxis-render/releases), experimental) in `mods/`. Voxy is All-Rights-Reserved: voxy-vulkan contains none of its code and
+[releases](https://github.com/laurensanp/siris/releases), experimental) in `mods/`. Voxy is All-Rights-Reserved: voxy-vulkan contains none of its code and
 is only built against it.
 
 ## Performance
@@ -220,8 +220,8 @@ Requirements: Windows 10/11, NVIDIA RTX GPU, Visual Studio 2022 or its Build Too
 workload, **JDK 25** (Gradle needs it in `JAVA_HOME`), git.
 
 ```bat
-git clone https://github.com/laurensanp/pyraxis-render.git
-cd pyraxis-render\dlss-bridge
+git clone https://github.com/laurensanp/siris.git
+cd siris\dlss-bridge
 powershell -ExecutionPolicy Bypass -File fetch-deps.ps1   :: NVIDIA DLSS SDK + Vulkan headers (from GitHub)
 set JAVA_HOME=C:\path\to\jdk-25
 build.bat                                                 :: out\siris.dll, out\dlss_probe.exe
