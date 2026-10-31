@@ -31,12 +31,12 @@ import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 /**
  * Lunar Client fixes, applied before any mixin is: Vitrail's @Redirect of the barrier in
  * VulkanCommandEncoder.submitRenderPass is dropped when another mod (Lunar's lunar$maybeBarrier) redirects the
- * same call, which otherwise is a critical injection failure at start (same change as tools/PatchVitrail.java;
- * Vitrail only narrows the barrier after its own passes, the game's full barrier stays). And Lunar's
+ * same call, which otherwise is a critical injection failure at start (Vitrail only narrows the barrier after
+ * its own passes, the game's full barrier stays). And Lunar's
  * "Multi-Threaded Rendering" (decoupledPresent) is turned off in its settings file, because with it Lunar
  * presents the swapchain itself and Frame Generation cannot start; with Vitrail its Turbo entity modes too
  * (armor stands and sign text vanish with shaders). Lunar reads that file after the mixin setup.
- * config/iris-dlss.properties: lunarCompat=false turns both off.
+ * config/iris-dlss.properties: lunarCompat=false turns all of it off.
  */
 public final class LunarCompat implements IMixinConfigPlugin {
 
