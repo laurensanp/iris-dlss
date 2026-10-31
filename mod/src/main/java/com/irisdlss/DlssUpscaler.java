@@ -715,6 +715,20 @@ public final class DlssUpscaler {
             .mul(jitteredProjection));
     }
 
+    /**
+     * The jitter as NGX takes it: the sample's offset from the pixel centre. The projection is shifted by
+     * +jitter in clip space, so the sample sits at -jitter in x; y is already flipped by the game's Vulkan
+     * projection. Measured 2026-10-31 (still camera, Custom 80 %): x reported as +jitter left the picture
+     * shaking by ±0.25 px horizontally, -jitter keeps it still. The config signs stay a diagnostic on top.
+     */
+    private static float reportedJitterX() {
+        return -jitterX * DlssConfig.jitterSignX;
+    }
+
+    private static float reportedJitterY() {
+        return jitterY * DlssConfig.jitterSignY;
+    }
+
     private static float halton(int index, int base) {
         float result = 0.0F;
         float fraction = 1.0F;
@@ -818,7 +832,7 @@ public final class DlssUpscaler {
         int status = DlssNative.evaluate(VulkanAccess.commandBuffer(),
             VulkanAccess.concat(VulkanAccess.describe(lowColor), VulkanAccess.describe(combinedDepthView),
                 VulkanAccess.describe(motionView), VulkanAccess.describe(outputView)),
-            jitterX * DlssConfig.jitterSignX, jitterY * DlssConfig.jitterSignY, 1.0F, 1.0F, resetHistory);
+            reportedJitterX(), reportedJitterY(), 1.0F, 1.0F, resetHistory);
         if (status != DlssNative.OK) {
             disable(DlssNative.message());
             return;
@@ -885,8 +899,8 @@ public final class DlssUpscaler {
             .mul(new Matrix4d(currentViewProjection).invert()).mul(fixInverse);
         clipToPrevClip.get(p, 32);
         new Matrix4d(clipToPrevClip).invert().get(p, 48);
-        p[64] = jitterX * DlssConfig.jitterSignX;
-        p[65] = jitterY * DlssConfig.jitterSignY;
+        p[64] = reportedJitterX();
+        p[65] = reportedJitterY();
         p[66] = 1.0F / renderWidth;
         p[67] = 1.0F / renderHeight;
         p[68] = (float) currentPosition.x;

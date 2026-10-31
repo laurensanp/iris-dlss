@@ -169,6 +169,10 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   residue ~9x (stripe metric 3.21 vs 0.37 without sharpening). Now RCAS (FSR 1, noise term halves the lobe), slider
   mapped through sqrt (35 % -> 0.59): stripes 0.24, edge strength 16.3 (native 18.7, old CAS 21.6 incl. grid).
   Dither animation was ruled out (`-Diris-dlss.noDitherAnimation=true` gives the same grid with CAS).
+- Jitter sign (2026-10-31): NGX got +jitterX; the picture shook ±0.25 px horizontally at a still camera (user's Lunar
+  F2 burst, then dev Custom 80 %: 8 testShots, floor rms 0.7-2.3 with +x vs 0.42-0.50 and no shift with -x; y sign made
+  no difference). `DlssUpscaler.reportedJitterX()` now reports -jitterX (SR and FG params); config jitterSign* stay a
+  diagnostic on top (1.0 = correct). User confirmed in Lunar.
 - Shaking for ~2 s after joining: history reset for 60 frames (new level) showed the raw jitter; jitter is now 0
   while `resetFrames > 0`.
 - FG smear at tree/block edges while turning (2026-10-30): reproduced with `-Diris-dlss.debugSpin=6` (6 deg per
