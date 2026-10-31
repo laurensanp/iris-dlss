@@ -1,6 +1,6 @@
 # Iris DLSS Bridge
 
-One repository (github.com/laurensanp/iris-dlss, MIT): a Fabric mod for Minecraft 26.3 that runs DLSS Super
+One repository (github.com/laurensanp/iris-dlss, MIT; GitHub renamed it to laurensanp/pyraxis-render, the old URL redirects): a Fabric mod for Minecraft 26.3 that runs DLSS Super
 Resolution + Frame Generation inside the game's own Vulkan renderer (RenderPearl). Shader packs come from
 **Vitrail** (separate mod, modrinth `vitrail-shaders`, github avpbynf/Vitrail-Shaders, LGPL-3.0, not ours,
 never commit or ship it). `README.md` lists everything a player or developer needs and where it comes from.
@@ -64,6 +64,12 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   Now it always waits 90 % of its slot: Lunar 5.5 / 6.0 ms pairs, 1 % below 2 ms. Two other approaches (minimum gap
   across frames, spacing by game work time) collapsed to ~15 fps (presenter wait feeds back into the game's frame
   interval), don't retry them.
+- PresentMon in Lunar 2026-10-31 (server, Complementary, Custom 80 % + FG x2, no VSync, 165 Hz): user felt "not like 300".
+  Mod log: 61-110 rendered / 132-212 shown. PresentMon: 164 presents/s, only 142 distinct frames/s displayed, 13 % dropped,
+  ~10 % shown for two refreshes (12.1 ms), display latency ~20 ms, mode "Composed: Copy with GPU GDI" (DWM copy; on
+  2026-10-27 it was "Hardware: Legacy Flip"). Suspects: the capture-lunar.bat console or an overlay in front (Discord, Game
+  Bar). Next: re-measure with the game in front and no overlays; then consider a shown-fps cap just under 165. PresentMon
+  can't tell generated from real frames for our Vulkan presenter (all "Application", swapchain 0x0).
 - **Vertex buffer churn fixed (`abfbfc5`)**: `StagedVertexBufferPoolMixin` keeps recycled vanilla vertex buffers
   (GUI, entities, particles) up to 120 frames instead of closing them each frame (with the presenter the GPU is ~2
   frames behind, so fences rarely signalled in time): dev ~2400 buffers / 600 MB per 10 s -> 6 / 4 MB. Lunar's
@@ -125,7 +131,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   `VulkanCommandEncoder.submitRenderPass`); until 0.7.2 that was worked around with `tools/PatchVitrail.java` and a
   local `-lunarfix` Vitrail jar (`../vitrail-dl`, never publish), since 0.7.2 `LunarCompat` does it at runtime.
   Could be reported to Vitrail (use @WrapOperation instead of @Redirect); ask the user first.
-- Current Lunar install (2026-10-31): surv, dlss-test and dlss-optimized have `iris-dlss-0.7.7+mc26.3.jar` (local build, not released; 0.7.6 in `mods-backup-2026-10-31-076/`) + plain `vitrail-0.13.0-beta+mc26.3.jar`,
+- Current Lunar install (2026-10-31): surv, dlss-test and dlss-optimized have `iris-dlss-0.7.7+mc26.3.jar` (release; 0.7.6 in `mods-backup-2026-10-31-076/`) + plain `vitrail-0.13.0-beta+mc26.3.jar`,
   `diagnosticRecording=false`; Lunar's active settings profile is `Default` (`DLSS` = empty test profile).
 
 ## Build & test
@@ -219,14 +225,17 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 
 ## Releases
 
-`"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jars> -R laurensanp/iris-dlss --title "Iris DLSS Bridge
+`"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jars> -R laurensanp/pyraxis-render --title "Iris DLSS Bridge
 <version> (Minecraft 26.3)" --latest` (gh is logged in as laurensanp; up to 0.7.1 they were `--prerelease`). v0.7.0 (2026-10-27, first with Vitrail): `iris-dlss-0.7.0+mc26.3.jar` +
 `voxy-vulkan-0.1.1+mc26.3.jar`; Vitrail is never attached (link to Modrinth + `tools/PatchVitrail.java` for Lunar).
 v0.7.1 (2026-10-27): pacing without VSync, vertex buffer reuse, diagnosticRecording (same voxy-vulkan 0.1.1
 attached). v0.7.2 (2026-10-30): LunarCompat (plain Vitrail jar in Lunar, threaded present off); full release marked "Latest" (user asked). v0.7.3 (2026-10-30, Latest): `lunarCompat`
 kept in `iris-dlss.properties` (0.7.2's `DlssConfig.save` dropped the key, so `lunarCompat=false` held one start). v0.7.4 (2026-10-30, Latest): pack TAA off also when shaders start disabled, animated pack dither, RCAS
 sharpening, no jitter on join, entity motion vectors, FG matrices in double, memory notice (same voxy-vulkan 0.1.1).
-v0.7.6 (2026-10-30, Latest): wWaypoints icons get their waypoint's motion vectors (no flicker with FG).
+v0.7.7 (2026-10-31, Latest, created by the user; auto mode blocks `gh release create`, give the PowerShell command
+`& "C:\Program Files\GitHub CLI\gh.exe" release create ... --notes-file ...`): x jitter sign fixed (no shaking), Lunar Turbo
+entity modes off with Vitrail (armor stands, sign text). Same voxy-vulkan 0.1.1.
+v0.7.6 (2026-10-30): wWaypoints icons get their waypoint's motion vectors (no flicker with FG).
 v0.7.5 (2026-10-30): wWaypoints icons move with FG, Vitrail join reload skipped for tagless packs.
 v0.5.0/v0.6.0 notes start with an "Outdated, needs the archived fork" line. Next release: bump `version` in
 `mod/build.gradle` (and `voxy-vulkan/build.gradle` if it changed), README notes, keep the asset names.
