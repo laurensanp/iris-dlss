@@ -152,7 +152,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   `mod/run/screenshots/dlss-test.png` after 200 ticks, quits (`DevTest`, `DevTestWorldMixin`). Options:
   `-PtestCommands="time set 1500;weather clear;tp @p -36 84 18 -90 20"` (tree/shadow view; `tp @p -36 82 18 180 8`
   = beach view), `-PtestPitch`, `-PtestTicks=600` (more for screenshots after loading), `-PwindowSize=1920x1080`,
-  `-PdlssBenchmark` (logs `SIRIS benchmark:` lines), `-PdlssOff`, `-PdlssDebug=spin|walk` (FG capture into
+  `-PtestHideGui=true` (F1, for gallery shots; overlay=off too), `-PdlssBenchmark` (logs `SIRIS benchmark:` lines), `-PdlssOff`, `-PdlssDebug=spin|walk` (FG capture into
   `mod/run/siris/captures`, only fires with Frame Generation). Look at the screenshot.
 - Dev `options.txt`: `fullscreen:false` (else a focus change minimizes and caps at 10 fps),
   `inactivityFpsLimit:"minimized"` (else the 30 fps AFK limit hits benchmarks). Run benchmarks with nothing else

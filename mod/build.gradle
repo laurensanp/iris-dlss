@@ -64,9 +64,9 @@ loom {
 			}
 			// Test run without the Iris fork (e.g. with Vitrail): -PtestWorld=<name> joins/creates that world,
 			// -PtestCommands="time set 1500;tp @p ..." after joining, -PtestPitch=20, -PtestTicks=400 until
-			// run/screenshots/dlss-test.png is saved and the game quits. -PwindowSize=1920x1080.
+			// run/screenshots/dlss-test.png is saved and the game quits. -PwindowSize=1920x1080, -PtestHideGui=true (F1).
 			// -PtestRepeat="execute as @e[type=pig] at @s run tp @s ~0.1 ~ ~ ~5 ~" runs every tick from then on.
-			["testWorld", "testCommands", "testRepeat", "testPitch", "testTicks"].each { name ->
+			["testWorld", "testCommands", "testRepeat", "testPitch", "testTicks", "testHideGui"].each { name ->
 				if (project.hasProperty(name)) {
 					vmArg "-Dsiris.${name}=" + project.property(name)
 				}

@@ -20,6 +20,9 @@ public final class DevTest {
     /** -Dsiris.captureTick=N: frame-generation capture (see VulkanPresenter) at client tick N. */
     private static final int CAPTURE_TICK = Integer.getInteger("siris.captureTick", -1);
 
+    /** -Dsiris.testHideGui=true: F1 (no HUD, hand or overlay) for clean screenshots. */
+    private static final boolean HIDE_GUI = Boolean.getBoolean("siris.testHideGui");
+
     private static int ticks;
 
     private DevTest() {
@@ -31,6 +34,9 @@ public final class DevTest {
             return;
         }
         ticks++;
+        if (ticks == 20 && HIDE_GUI && !minecraft.gui.hud.isHidden()) {
+            minecraft.gui.hud.toggle();
+        }
         if (ticks == 20 && COMMANDS != null) {
             for (String command : COMMANDS.split(";")) {
                 minecraft.player.connection.sendCommand(command.trim());
