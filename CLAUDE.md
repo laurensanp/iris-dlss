@@ -131,7 +131,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   `VulkanCommandEncoder.submitRenderPass`); until 0.7.2 that was worked around with `tools/PatchVitrail.java` (removed 2026-10-31) and a
   local `-lunarfix` Vitrail jar (`../vitrail-dl`, never publish), since 0.7.2 `LunarCompat` does it at runtime.
   Could be reported to Vitrail (use @WrapOperation instead of @Redirect); ask the user first.
-- Current Lunar install (2026-10-31): surv, dlss-test and dlss-optimized have `iris-dlss-1.1.0+mc26.3.jar` (0.7.7 in `mods-backup-2026-10-31-077/`, 0.7.6 in `mods-backup-2026-10-31-076/`) + plain `vitrail-0.13.0-beta+mc26.3.jar`,
+- Current Lunar install (2026-10-31): surv, dlss-test and dlss-optimized have `iris-dlss-1.1.1+mc26.3.jar` (1.1.0 in `mods-backup-2026-10-31-110/`, 0.7.7 in `mods-backup-2026-10-31-077/`, 0.7.6 in `mods-backup-2026-10-31-076/`) + plain `vitrail-0.13.0-beta+mc26.3.jar`,
   `diagnosticRecording=false`; Lunar's active settings profile is `Default` (`DLSS` = empty test profile).
 
 ## Build & test
@@ -232,7 +232,10 @@ v0.7.1 (2026-10-27): pacing without VSync, vertex buffer reuse, diagnosticRecord
 attached). v0.7.2 (2026-10-30): LunarCompat (plain Vitrail jar in Lunar, threaded present off); full release marked "Latest" (user asked). v0.7.3 (2026-10-30, Latest): `lunarCompat`
 kept in `iris-dlss.properties` (0.7.2's `DlssConfig.save` dropped the key, so `lunarCompat=false` held one start). v0.7.4 (2026-10-30, Latest): pack TAA off also when shaders start disabled, animated pack dither, RCAS
 sharpening, no jitter on join, entity motion vectors, FG matrices in double, memory notice (same voxy-vulkan 0.1.1).
-v1.1.0 (2026-10-31): first 1.x, PYRAXIS icon (frame stack: `.github/assets/pyraxis-icon.svg`, mod icon
+v1.1.1 (2026-10-31): orange theme `#FF6A3D` (the icon's ember) for the settings screen headers, Sodium page theme
+(`setBaseThemeRGB`) and README badges; icon in Sodium's list (`setNonTintedIcon(iris-dlss:icon.png)`). Notes in
+`mod/build/release-notes-1.1.1.md`. Theme colour for anything new: `#FF6A3D` (amber `#FFB547`, ground `#17140F`).
+v1.1.0 (2026-10-31, created by the user): first 1.x, PYRAXIS icon (frame stack: `.github/assets/pyraxis-icon.svg`, mod icon
 `assets/iris-dlss/icon.png` rendered from it at 128 px), cleanup; notes in `mod/build/release-notes-1.1.0.md`.
 v0.7.7 (2026-10-31, created by the user; auto mode blocks `gh release create`, give the PowerShell command
 `& "C:\Program Files\GitHub CLI\gh.exe" release create ... --notes-file ...`): x jitter sign fixed (no shaking), Lunar Turbo
