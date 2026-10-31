@@ -8,14 +8,14 @@
     "laurensanp"
   ],
   "contact": {
-    "sources": "https://github.com/laurensanp/iris-dlss",
-    "issues": "https://github.com/laurensanp/iris-dlss/issues"
+    "sources": "https://github.com/laurensanp/pyraxis-render",
+    "issues": "https://github.com/laurensanp/pyraxis-render/issues"
   },
   "license": "MIT",
   "environment": "client",
   "entrypoints": {
     "client": [
-      "com.irisdlss.voxyvulkan.VoxyVulkan"
+      "com.siris.voxyvulkan.VoxyVulkan"
     ]
   },
   "mixins": [

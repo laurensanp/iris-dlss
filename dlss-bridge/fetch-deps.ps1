@@ -4,7 +4,7 @@
 # Tested with DLSS SDK 310.x. Usage: powershell -ExecutionPolicy Bypass -File fetch-deps.ps1
 $ErrorActionPreference = "Stop"
 $root = Join-Path $PSScriptRoot "third_party"
-$tmp = Join-Path $env:TEMP "irisdlss-deps"
+$tmp = Join-Path $env:TEMP "siris-deps"
 if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
 New-Item -ItemType Directory -Force $tmp, $root | Out-Null
 

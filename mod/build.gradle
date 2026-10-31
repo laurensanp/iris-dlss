@@ -3,7 +3,7 @@ plugins {
 }
 
 version = "1.1.1+mc26.3"
-group = "com.irisdlss"
+group = "com.siris"
 
 repositories {
 	maven { url = "https://maven.terraformersmc.com/releases/" }
@@ -36,7 +36,7 @@ java {
 
 // Native bridge (built by dlss-bridge/build.bat) and NVIDIA's DLSS runtime are packed into the jar.
 tasks.register("copyNatives", Copy) {
-	from("../dlss-bridge/out") { include "irisdlss.dll", "nvngx_dlss.dll", "nvngx_dlssg.dll" }
+	from("../dlss-bridge/out") { include "siris.dll", "nvngx_dlss.dll", "nvngx_dlssg.dll" }
 	from("../dlss-bridge/third_party/ngx") { include "LICENSE.txt"; rename { "NVIDIA_DLSS_LICENSE.txt" } }
 	into "src/main/resources/natives"
 }
@@ -51,16 +51,16 @@ loom {
 			// %TEMP%/lwjgl_<user>/.../lwjgl_zstd.dll, which Voxy needs to extract its own copy.
 			vmArg "-Dorg.lwjgl.system.SharedLibraryExtractPath=" + file("run/lwjgl-natives").absolutePath
 			// gradlew runClient -PdlssDebug=spin|walk|still: steady camera turn, walking forward or a still camera, and a
-			// frame-generation capture into run/iris-dlss/captures (generated + real frames as PNG).
+			// frame-generation capture into run/siris/captures (generated + real frames as PNG).
 			if (project.hasProperty("dlssDebug")) {
 				def mode = project.property("dlssDebug")
 				if (mode == "walk") {
-					vmArg "-Diris-dlss.debugWalk=true"
+					vmArg "-Dsiris.debugWalk=true"
 				} else if (mode != "still") {
-					vmArg "-Diris-dlss.debugSpin=1.5"
+					vmArg "-Dsiris.debugSpin=1.5"
 				}
-				vmArg "-Diris-dlss.captureAt=" + (project.findProperty("captureAt") ?: "300")
-				vmArg "-Diris-dlss.debugLog=true"
+				vmArg "-Dsiris.captureAt=" + (project.findProperty("captureAt") ?: "300")
+				vmArg "-Dsiris.debugLog=true"
 			}
 			// Test run without the Iris fork (e.g. with Vitrail): -PtestWorld=<name> joins/creates that world,
 			// -PtestCommands="time set 1500;tp @p ..." after joining, -PtestPitch=20, -PtestTicks=400 until
@@ -68,20 +68,20 @@ loom {
 			// -PtestRepeat="execute as @e[type=pig] at @s run tp @s ~0.1 ~ ~ ~5 ~" runs every tick from then on.
 			["testWorld", "testCommands", "testRepeat", "testPitch", "testTicks"].each { name ->
 				if (project.hasProperty(name)) {
-					vmArg "-Diris-dlss.${name}=" + project.property(name)
+					vmArg "-Dsiris.${name}=" + project.property(name)
 				}
 			}
 			// -PdlssOff: DLSS off once in the world, still on Vulkan (compare with DLSS on).
 			// -PdlssScreen=mod|sodium|sodium2 opens the DLSS settings after joining (for the test screenshot).
 			if (project.hasProperty("dlssScreen")) {
-				vmArg "-Diris-dlss.debugScreen=" + project.property("dlssScreen")
+				vmArg "-Dsiris.debugScreen=" + project.property("dlssScreen")
 			}
 			if (project.hasProperty("dlssOff")) {
-				vmArg "-Diris-dlss.devNoDlss=true"
+				vmArg "-Dsiris.devNoDlss=true"
 			}
 			if (project.hasProperty("dlssBenchmark")) {
-				vmArg "-Diris-dlss.benchmark=true"
-				vmArg "-Diris-dlss.testTicks=4000"
+				vmArg "-Dsiris.benchmark=true"
+				vmArg "-Dsiris.testTicks=4000"
 			}
 			if (project.hasProperty("windowSize")) {
 				def size = project.property("windowSize").toString().split("x")

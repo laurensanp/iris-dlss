@@ -1,4 +1,4 @@
-#define IRISDLSS_BUILD
+#define SIRIS_BUILD
 #define VK_NO_PROTOTYPES
 #define VK_USE_PLATFORM_WIN32_KHR
 #define WIN32_LEAN_AND_MEAN
@@ -131,7 +131,7 @@ Vk g_vk;
 Dlss g_dlss;
 std::vector<Retired> g_retired;
 uint64_t g_frameCounter = 0;
-int32_t g_fgMax = -1;  // irisdlss_frame_generation_max, read once after NGX init
+int32_t g_fgMax = -1;  // siris_frame_generation_max, read once after NGX init
 
 std::string narrow(const wchar_t* text) {
     if (!text) {
@@ -255,7 +255,7 @@ VkImageMemoryBarrier barrier(VkImage image, VkFormat format, VkImageLayout from,
     return b;
 }
 
-VkImageMemoryBarrier barrier(const IrisDlssImage& image, VkImageLayout from, VkImageLayout to) {
+VkImageMemoryBarrier barrier(const SirisImage& image, VkImageLayout from, VkImageLayout to) {
     return barrier(reinterpret_cast<VkImage>(image.image), static_cast<VkFormat>(image.format), from, to);
 }
 
@@ -264,7 +264,7 @@ void pipelineBarrier(VkCommandBuffer cmd, uint32_t count, const VkImageMemoryBar
         0, nullptr, count, barriers);
 }
 
-NVSDK_NGX_Resource_VK resource(const IrisDlssImage& image, bool readWrite) {
+NVSDK_NGX_Resource_VK resource(const SirisImage& image, bool readWrite) {
     VkFormat format = static_cast<VkFormat>(image.format);
     return NVSDK_NGX_Create_ImageView_Resource_VK(reinterpret_cast<VkImageView>(image.view),
         reinterpret_cast<VkImage>(image.image), viewRange(format), format, image.width, image.height, readWrite);
@@ -272,17 +272,17 @@ NVSDK_NGX_Resource_VK resource(const IrisDlssImage& image, bool readWrite) {
 
 }  // namespace
 
-IRISDLSS_API const char* irisdlss_last_message() {
+SIRIS_API const char* siris_last_message() {
     return g_message.c_str();
 }
 
-IRISDLSS_API void irisdlss_set_data_path(const wchar_t* dataPath) {
+SIRIS_API void siris_set_data_path(const wchar_t* dataPath) {
     g_dataPath = dataPath ? dataPath : L"";
 }
 
 // ---- Device creation ----------------------------------------------------------------------------
 
-IRISDLSS_API int32_t irisdlss_create_instance(uint64_t gipaAddress, const void* createInfo, const void* allocator,
+SIRIS_API int32_t siris_create_instance(uint64_t gipaAddress, const void* createInfo, const void* allocator,
     void* outInstance) {
     auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(gipaAddress);
     auto createInstance = reinterpret_cast<PFN_vkCreateInstance>(gipa(nullptr, "vkCreateInstance"));
@@ -329,7 +329,7 @@ IRISDLSS_API int32_t irisdlss_create_instance(uint64_t gipaAddress, const void* 
     return result;
 }
 
-IRISDLSS_API int32_t irisdlss_create_device(uint64_t gipaAddress, uint64_t instanceHandle, uint64_t physicalHandle,
+SIRIS_API int32_t siris_create_device(uint64_t gipaAddress, uint64_t instanceHandle, uint64_t physicalHandle,
     const void* createInfo, const void* allocator, void* outDevice) {
     auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(gipaAddress);
     auto instance = reinterpret_cast<VkInstance>(instanceHandle);
@@ -536,12 +536,12 @@ IRISDLSS_API int32_t irisdlss_create_device(uint64_t gipaAddress, uint64_t insta
     return result;
 }
 
-IRISDLSS_API int32_t irisdlss_init() {
+SIRIS_API int32_t siris_init() {
     if (g_vk.ngxInitialized) {
-        return IRISDLSS_OK;
+        return SIRIS_OK;
     }
     if (!g_vk.device) {
-        return fail(IRISDLSS_DEVICE_FAILED, g_message.empty()
+        return fail(SIRIS_DEVICE_FAILED, g_message.empty()
             ? "the game's Vulkan device was not created through the bridge (Graphics API not Vulkan?)" : g_message);
     }
     loadInstance(g_vk.gdpa, "vkGetDeviceProcAddr");
@@ -611,13 +611,13 @@ IRISDLSS_API int32_t irisdlss_init() {
         kEngineVersion, g_dataPath.c_str(), g_vk.instance, g_vk.physicalDevice, g_vk.device, g_vk.gipa, g_vk.gdpa,
         &featureInfo);
     if (NVSDK_NGX_FAILED(result)) {
-        return fail(IRISDLSS_NGX_INIT_FAILED, ngxError("NGX init failed", result));
+        return fail(SIRIS_NGX_INIT_FAILED, ngxError("NGX init failed", result));
     }
     g_vk.ngxInitialized = true;
 
     result = NVSDK_NGX_VULKAN_GetCapabilityParameters(&g_vk.capabilities);
     if (NVSDK_NGX_FAILED(result)) {
-        return fail(IRISDLSS_NGX_INIT_FAILED, ngxError("NGX capability query failed", result));
+        return fail(SIRIS_NGX_INIT_FAILED, ngxError("NGX capability query failed", result));
     }
     int needsDriver = 0;
     unsigned int minMajor = 0, minMinor = 0;
@@ -625,7 +625,7 @@ IRISDLSS_API int32_t irisdlss_init() {
     NVSDK_NGX_Parameter_GetUI(g_vk.capabilities, NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMajor, &minMajor);
     NVSDK_NGX_Parameter_GetUI(g_vk.capabilities, NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMinor, &minMinor);
     if (needsDriver) {
-        return fail(IRISDLSS_DRIVER_TOO_OLD, "DLSS needs driver " + std::to_string(minMajor) + "."
+        return fail(SIRIS_DRIVER_TOO_OLD, "DLSS needs driver " + std::to_string(minMajor) + "."
             + std::to_string(minMinor) + " or newer");
     }
     int available = 0;
@@ -633,18 +633,18 @@ IRISDLSS_API int32_t irisdlss_init() {
     if (NVSDK_NGX_FAILED(result) || !available) {
         int initResult = 0;
         NVSDK_NGX_Parameter_GetI(g_vk.capabilities, NVSDK_NGX_Parameter_SuperSampling_FeatureInitResult, &initResult);
-        return fail(IRISDLSS_DLSS_UNAVAILABLE,
+        return fail(SIRIS_DLSS_UNAVAILABLE,
             ngxError("DLSS Super Resolution unavailable", static_cast<NVSDK_NGX_Result>(initResult)));
     }
     g_fgMax = -1;
-    int fgMax = irisdlss_frame_generation_max();
+    int fgMax = siris_frame_generation_max();
     g_message = "DLSS Super Resolution available on " + g_vk.deviceName + " (game's Vulkan device"
         + (g_vk.presentQueue ? ", presenter queue" : ", no presenter queue")
         + (fgMax > 0 ? ", Frame Generation up to " + std::to_string(fgMax) + "x)" : ", no Frame Generation)");
-    return IRISDLSS_OK;
+    return SIRIS_OK;
 }
 
-IRISDLSS_API int32_t irisdlss_frame_generation_max() {
+SIRIS_API int32_t siris_frame_generation_max() {
     if (!g_vk.capabilities) {
         return 0;
     }
@@ -666,7 +666,7 @@ IRISDLSS_API int32_t irisdlss_frame_generation_max() {
     return g_fgMax;
 }
 
-IRISDLSS_API void irisdlss_frame_submitted() {
+SIRIS_API void siris_frame_submitted() {
     g_frameCounter++;
     if (!g_retired.empty()) {
         releaseRetired(false);
@@ -675,7 +675,7 @@ IRISDLSS_API void irisdlss_frame_submitted() {
 
 // ---- DLSS Super Resolution ----------------------------------------------------------------------
 
-IRISDLSS_API int32_t irisdlss_optimal_settings(uint32_t outWidth, uint32_t outHeight, int32_t quality,
+SIRIS_API int32_t siris_optimal_settings(uint32_t outWidth, uint32_t outHeight, int32_t quality,
     uint32_t* renderWidth, uint32_t* renderHeight, float* sharpness) {
     if (!g_vk.capabilities) {
         return -1;
@@ -691,22 +691,22 @@ namespace {
 void releaseFrameGeneration();
 }
 
-IRISDLSS_API void irisdlss_destroy_resources() {
+SIRIS_API void siris_destroy_resources() {
     // Frame generation is created for the DLSS render size and reads its images.
     releaseFrameGeneration();
     retire(g_dlss.handle, g_dlss.params);
     g_dlss = Dlss{};
 }
 
-IRISDLSS_API int32_t irisdlss_create_resources(uint64_t commandBuffer, uint32_t renderWidth, uint32_t renderHeight,
+SIRIS_API int32_t siris_create_resources(uint64_t commandBuffer, uint32_t renderWidth, uint32_t renderHeight,
     uint32_t outWidth, uint32_t outHeight, int32_t quality, int32_t depthInverted, int32_t preset) {
     if (!g_vk.ngxInitialized) {
-        return fail(IRISDLSS_NGX_INIT_FAILED, "not initialized");
+        return fail(SIRIS_NGX_INIT_FAILED, "not initialized");
     }
-    irisdlss_destroy_resources();
+    siris_destroy_resources();
     NVSDK_NGX_Result result = NVSDK_NGX_VULKAN_AllocateParameters(&g_dlss.params);
     if (NVSDK_NGX_FAILED(result)) {
-        return fail(IRISDLSS_NGX_INIT_FAILED, ngxError("NGX parameter allocation failed", result));
+        return fail(SIRIS_NGX_INIT_FAILED, ngxError("NGX parameter allocation failed", result));
     }
     // Model preset (NVSDK_NGX_DLSS_Hint_Render_Preset): 0 = driver default, 11 = K (transformer).
     for (const char* key : {NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA,
@@ -727,8 +727,8 @@ IRISDLSS_API int32_t irisdlss_create_resources(uint64_t commandBuffer, uint32_t 
     result = NGX_VULKAN_CREATE_DLSS_EXT1(g_vk.device, reinterpret_cast<VkCommandBuffer>(commandBuffer), 1, 1,
         &g_dlss.handle, g_dlss.params, &create);
     if (NVSDK_NGX_FAILED(result)) {
-        irisdlss_destroy_resources();
-        return fail(IRISDLSS_DLSS_UNAVAILABLE, ngxError("DLSS feature creation failed", result));
+        siris_destroy_resources();
+        return fail(SIRIS_DLSS_UNAVAILABLE, ngxError("DLSS feature creation failed", result));
     }
     g_dlss.renderWidth = renderWidth;
     g_dlss.renderHeight = renderHeight;
@@ -736,14 +736,14 @@ IRISDLSS_API int32_t irisdlss_create_resources(uint64_t commandBuffer, uint32_t 
     g_dlss.outHeight = outHeight;
     g_message = "DLSS " + std::to_string(renderWidth) + "x" + std::to_string(renderHeight) + " -> "
         + std::to_string(outWidth) + "x" + std::to_string(outHeight);
-    return IRISDLSS_OK;
+    return SIRIS_OK;
 }
 
-IRISDLSS_API int32_t irisdlss_evaluate(uint64_t commandBuffer, const IrisDlssImage* color, const IrisDlssImage* depth,
-    const IrisDlssImage* motion, const IrisDlssImage* output, float jitterX, float jitterY, float mvScaleX,
+SIRIS_API int32_t siris_evaluate(uint64_t commandBuffer, const SirisImage* color, const SirisImage* depth,
+    const SirisImage* motion, const SirisImage* output, float jitterX, float jitterY, float mvScaleX,
     float mvScaleY, int32_t reset) {
     if (!g_dlss.handle) {
-        return fail(IRISDLSS_DLSS_UNAVAILABLE, "no DLSS feature");
+        return fail(SIRIS_DLSS_UNAVAILABLE, "no DLSS feature");
     }
     auto cmd = reinterpret_cast<VkCommandBuffer>(commandBuffer);
     // Inputs read-only, output stays GENERAL for storage writes.
@@ -780,9 +780,9 @@ IRISDLSS_API int32_t irisdlss_evaluate(uint64_t commandBuffer, const IrisDlssIma
     };
     pipelineBarrier(cmd, 4, after);
     if (NVSDK_NGX_FAILED(result)) {
-        return fail(IRISDLSS_DLSS_UNAVAILABLE, ngxError("DLSS evaluate failed", result));
+        return fail(SIRIS_DLSS_UNAVAILABLE, ngxError("DLSS evaluate failed", result));
     }
-    return IRISDLSS_OK;
+    return SIRIS_OK;
 }
 
 // ---- Presentation -------------------------------------------------------------------------------
@@ -815,7 +815,7 @@ struct Job {
     int generated;  // generated frames to show before the real one (0 = none)
     uint64_t value;  // timeline value signaled when the slot's images are rendered
     double queued;   // when the game handed the frame over (render thread)
-    double started;  // when the game started the frame (irisdlss_presenter_frame_start), 0 if unknown
+    double started;  // when the game started the frame (siris_presenter_frame_start), 0 if unknown
 };
 
 // Presentation timing, gathered on the presenter thread and published once a second.
@@ -868,7 +868,7 @@ struct Presenter {
     NVSDK_NGX_Handle* fg = nullptr;
     NVSDK_NGX_Parameter* fgParams = nullptr;
     bool fgFailed = false;
-    std::atomic<int> generatedWanted{1};  // generated frames per rendered one (irisdlss_presenter_set_generated)
+    std::atomic<int> generatedWanted{1};  // generated frames per rendered one (siris_presenter_set_generated)
     int lastGeneratedCount = 0;           // of the last frame-generated present (render thread)
 
     // Pacing and stats.
@@ -904,7 +904,7 @@ struct Presenter {
     std::atomic<double> started[kStartedRing]{};
     double frameStart = 0.0;
 
-    // Process exit without irisdlss_presenter_destroy: a joinable std::thread would terminate().
+    // Process exit without siris_presenter_destroy: a joinable std::thread would terminate().
     ~Presenter() {
         if (thread.joinable()) {
             thread.detach();
@@ -974,7 +974,7 @@ void destroyLocalImage(LocalImage& image) {
     image = LocalImage{};
 }
 
-IrisDlssImage describe(const LocalImage& image, uint32_t width, uint32_t height) {
+SirisImage describe(const LocalImage& image, uint32_t width, uint32_t height) {
     return {reinterpret_cast<uint64_t>(image.image), reinterpret_cast<uint64_t>(image.view),
         VK_FORMAT_R8G8B8A8_UNORM, width, height};
 }
@@ -1014,10 +1014,10 @@ HWND createPresentWindow(HWND parent, uint32_t width, uint32_t height) {
         WNDCLASSEXW wc{sizeof(wc)};
         wc.lpfnWndProc = presentWindowProc;
         wc.hInstance = instance;
-        wc.lpszClassName = L"IrisDlssPresent";
+        wc.lpszClassName = L"SirisPresent";
         registered = RegisterClassExW(&wc) != 0;
     }
-    return CreateWindowExW(WS_EX_NOPARENTNOTIFY, L"IrisDlssPresent", L"",
+    return CreateWindowExW(WS_EX_NOPARENTNOTIFY, L"SirisPresent", L"",
         WS_CHILD | WS_VISIBLE | WS_DISABLED | WS_CLIPSIBLINGS, 0, 0, static_cast<int>(width),
         static_cast<int>(height), parent, nullptr, instance, nullptr);
 }
@@ -1687,7 +1687,7 @@ bool ensureFrameGeneration(VkCommandBuffer cmd) {
 
 }  // namespace
 
-IRISDLSS_API void irisdlss_presenter_destroy() {
+SIRIS_API void siris_presenter_destroy() {
     if (!g_vk.device) {
         return;
     }
@@ -1776,14 +1776,14 @@ IRISDLSS_API void irisdlss_presenter_destroy() {
     g_present.threadError.clear();
 }
 
-IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t width, uint32_t height, int32_t vsync) {
+SIRIS_API int32_t siris_presenter_create(uint64_t parentHwnd, uint32_t width, uint32_t height, int32_t vsync) {
     if (!g_vk.ngxInitialized) {
-        return fail(IRISDLSS_NGX_INIT_FAILED, "not initialized");
+        return fail(SIRIS_NGX_INIT_FAILED, "not initialized");
     }
     if (!g_vk.presentQueue) {
-        return fail(IRISDLSS_DEVICE_FAILED, "no spare queue in the graphics family for the presenter");
+        return fail(SIRIS_DEVICE_FAILED, "no spare queue in the graphics family for the presenter");
     }
-    irisdlss_presenter_destroy();
+    siris_presenter_destroy();
     LARGE_INTEGER frequency;
     QueryPerformanceFrequency(&frequency);
     g_present.frequency = static_cast<double>(frequency.QuadPart);
@@ -1797,26 +1797,26 @@ IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t wid
     HWND parent = reinterpret_cast<HWND>(parentHwnd);
     g_present.window = createPresentWindow(parent, width, height);
     if (!g_present.window) {
-        return fail(IRISDLSS_DEVICE_FAILED, "child window creation failed");
+        return fail(SIRIS_DEVICE_FAILED, "child window creation failed");
     }
     VkWin32SurfaceCreateInfoKHR surfaceInfo{VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
     surfaceInfo.hinstance = GetModuleHandleW(nullptr);
     surfaceInfo.hwnd = g_present.window;
     if (g_vk.createWin32Surface(g_vk.instance, &surfaceInfo, nullptr, &g_present.surface) != VK_SUCCESS) {
-        irisdlss_presenter_destroy();
-        return fail(IRISDLSS_DEVICE_FAILED, "vkCreateWin32SurfaceKHR failed");
+        siris_presenter_destroy();
+        return fail(SIRIS_DEVICE_FAILED, "vkCreateWin32SurfaceKHR failed");
     }
     VkBool32 supported = VK_FALSE;
     g_vk.getSurfaceSupport(g_vk.physicalDevice, g_vk.queueFamily, g_present.surface, &supported);
     if (!supported) {
-        irisdlss_presenter_destroy();
-        return fail(IRISDLSS_DEVICE_FAILED, "queue family cannot present to the window");
+        siris_presenter_destroy();
+        return fail(SIRIS_DEVICE_FAILED, "queue family cannot present to the window");
     }
     g_present.timeline = createSemaphore(true);
     for (PresentSlot& slot : g_present.slots) {
         if (!createLocalImage(slot.real, width, height) || !createLocalImage(slot.interp[0], width, height)) {
-            irisdlss_presenter_destroy();
-            return fail(IRISDLSS_DEVICE_FAILED, "present slot creation failed");
+            siris_presenter_destroy();
+            return fail(SIRIS_DEVICE_FAILED, "present slot creation failed");
         }
     }
     VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
@@ -1828,8 +1828,8 @@ IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t wid
     if (!g_present.timeline || g_vk.createCommandPool(g_vk.device, &poolInfo, nullptr, &g_present.blitPool) != VK_SUCCESS
         || (blitAlloc.commandPool = g_present.blitPool,
             g_vk.allocateCommandBuffers(g_vk.device, &blitAlloc, g_present.blitBuffers) != VK_SUCCESS)) {
-        irisdlss_presenter_destroy();
-        return fail(IRISDLSS_DEVICE_FAILED, "presenter command pool failed");
+        siris_presenter_destroy();
+        return fail(SIRIS_DEVICE_FAILED, "presenter command pool failed");
     }
     for (int i = 0; i < kBlitCount; i++) {
         g_present.blitFences[i] = createFence();
@@ -1840,17 +1840,17 @@ IRISDLSS_API int32_t irisdlss_presenter_create(uint64_t parentHwnd, uint32_t wid
 
     std::string error;
     if (!createSwapchain(error) && !error.empty()) {
-        irisdlss_presenter_destroy();
-        return fail(IRISDLSS_DEVICE_FAILED, error);
+        siris_presenter_destroy();
+        return fail(SIRIS_DEVICE_FAILED, error);
     }
     g_present.thread = std::thread(presenterLoop);
     g_present.watcher = std::thread(watcherLoop);
     g_message = "Vulkan presenter " + std::to_string(width) + "x" + std::to_string(height) + " on the game's device"
         + (g_vk.presentWait ? ", paced on present wait" : ", no present wait");
-    return IRISDLSS_OK;
+    return SIRIS_OK;
 }
 
-IRISDLSS_API void irisdlss_presenter_frame_start() {
+SIRIS_API void siris_presenter_frame_start() {
     if (!g_present.thread.joinable()) {
         return;
     }
@@ -1876,32 +1876,32 @@ IRISDLSS_API void irisdlss_presenter_frame_start() {
     g_present.frameStart = now();
 }
 
-IRISDLSS_API void irisdlss_presenter_set_vsync(int32_t vsync) {
+SIRIS_API void siris_presenter_set_vsync(int32_t vsync) {
     bool value = vsync != 0;
     if (g_present.vsync.exchange(value) != value) {
         g_present.recreate = true;
     }
 }
 
-IRISDLSS_API void irisdlss_presenter_set_generated(int32_t count) {
-    int max = irisdlss_frame_generation_max() - 1;
+SIRIS_API void siris_presenter_set_generated(int32_t count) {
+    int max = siris_frame_generation_max() - 1;
     count = count > max ? max : count;
     g_present.generatedWanted = count < 1 ? 1 : count;
 }
 
-IRISDLSS_API uint64_t irisdlss_presenter_timeline() {
+SIRIS_API uint64_t siris_presenter_timeline() {
     return reinterpret_cast<uint64_t>(g_present.timeline);
 }
 
-IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImage* frame, const IrisDlssImage* depth,
-    const IrisDlssImage* motion, const IrisDlssImage* hudless, const float* fg, uint64_t* signalValue) {
+SIRIS_API int32_t siris_present(uint64_t commandBuffer, const SirisImage* frame, const SirisImage* depth,
+    const SirisImage* motion, const SirisImage* hudless, const float* fg, uint64_t* signalValue) {
     *signalValue = 0;
     if (!g_present.thread.joinable()) {
-        return fail(IRISDLSS_DEVICE_FAILED, "presenter not running");
+        return fail(SIRIS_DEVICE_FAILED, "presenter not running");
     }
     if (g_present.threadFailed) {
         std::lock_guard<std::mutex> lock(g_present.mutex);
-        return fail(IRISDLSS_DEVICE_FAILED, g_present.threadError);
+        return fail(SIRIS_DEVICE_FAILED, g_present.threadError);
     }
     double t = now();
     if (t - g_present.refreshChecked > 1.0) {
@@ -1990,27 +1990,27 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
         eval.pMVecs = &motionResource;
         eval.pHudless = &hudlessResource;
         NVSDK_NGX_DLSSG_Opt_Eval_Params opt{};
-        std::memcpy(opt.cameraViewToClip, fg + IRISDLSS_FG_VIEW_TO_CLIP, sizeof(opt.cameraViewToClip));
-        std::memcpy(opt.clipToCameraView, fg + IRISDLSS_FG_CLIP_TO_VIEW, sizeof(opt.clipToCameraView));
-        std::memcpy(opt.clipToPrevClip, fg + IRISDLSS_FG_CLIP_TO_PREV_CLIP, sizeof(opt.clipToPrevClip));
-        std::memcpy(opt.prevClipToClip, fg + IRISDLSS_FG_PREV_CLIP_TO_CLIP, sizeof(opt.prevClipToClip));
+        std::memcpy(opt.cameraViewToClip, fg + SIRIS_FG_VIEW_TO_CLIP, sizeof(opt.cameraViewToClip));
+        std::memcpy(opt.clipToCameraView, fg + SIRIS_FG_CLIP_TO_VIEW, sizeof(opt.clipToCameraView));
+        std::memcpy(opt.clipToPrevClip, fg + SIRIS_FG_CLIP_TO_PREV_CLIP, sizeof(opt.clipToPrevClip));
+        std::memcpy(opt.prevClipToClip, fg + SIRIS_FG_PREV_CLIP_TO_CLIP, sizeof(opt.prevClipToClip));
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
                 opt.clipToLensClip[i][j] = i == j ? 1.0f : 0.0f;
             }
         }
-        std::memcpy(opt.jitterOffset, fg + IRISDLSS_FG_JITTER, sizeof(opt.jitterOffset));
-        std::memcpy(opt.mvecScale, fg + IRISDLSS_FG_MVEC_SCALE, sizeof(opt.mvecScale));
-        std::memcpy(opt.cameraPos, fg + IRISDLSS_FG_CAMERA_POS, sizeof(opt.cameraPos));
-        std::memcpy(opt.cameraUp, fg + IRISDLSS_FG_CAMERA_UP, sizeof(opt.cameraUp));
-        std::memcpy(opt.cameraRight, fg + IRISDLSS_FG_CAMERA_RIGHT, sizeof(opt.cameraRight));
-        std::memcpy(opt.cameraFwd, fg + IRISDLSS_FG_CAMERA_FWD, sizeof(opt.cameraFwd));
-        opt.cameraNear = fg[IRISDLSS_FG_NEAR];
-        opt.cameraFar = fg[IRISDLSS_FG_FAR];
-        opt.cameraFOV = fg[IRISDLSS_FG_FOV];
-        opt.cameraAspectRatio = fg[IRISDLSS_FG_ASPECT];
-        opt.reset = fg[IRISDLSS_FG_RESET] != 0.0f;
-        opt.depthInverted = fg[IRISDLSS_FG_DEPTH_INVERTED] != 0.0f;
+        std::memcpy(opt.jitterOffset, fg + SIRIS_FG_JITTER, sizeof(opt.jitterOffset));
+        std::memcpy(opt.mvecScale, fg + SIRIS_FG_MVEC_SCALE, sizeof(opt.mvecScale));
+        std::memcpy(opt.cameraPos, fg + SIRIS_FG_CAMERA_POS, sizeof(opt.cameraPos));
+        std::memcpy(opt.cameraUp, fg + SIRIS_FG_CAMERA_UP, sizeof(opt.cameraUp));
+        std::memcpy(opt.cameraRight, fg + SIRIS_FG_CAMERA_RIGHT, sizeof(opt.cameraRight));
+        std::memcpy(opt.cameraFwd, fg + SIRIS_FG_CAMERA_FWD, sizeof(opt.cameraFwd));
+        opt.cameraNear = fg[SIRIS_FG_NEAR];
+        opt.cameraFar = fg[SIRIS_FG_FAR];
+        opt.cameraFOV = fg[SIRIS_FG_FOV];
+        opt.cameraAspectRatio = fg[SIRIS_FG_ASPECT];
+        opt.reset = fg[SIRIS_FG_RESET] != 0.0f;
+        opt.depthInverted = fg[SIRIS_FG_DEPTH_INVERTED] != 0.0f;
         opt.cameraMotionIncluded = true;
         opt.colorBuffersHDR = false;
         opt.motionVectorsInvalidValue = 1e30f;  // every vector we write is valid
@@ -2081,18 +2081,18 @@ IRISDLSS_API int32_t irisdlss_present(uint64_t commandBuffer, const IrisDlssImag
         g_present.fgFailed = true;
         g_message = ngxError("frame generation evaluate failed", fgResult) + " (" + std::to_string(generated)
             + " generated frames)";
-        return IRISDLSS_DLSS_UNAVAILABLE;
+        return SIRIS_DLSS_UNAVAILABLE;
     }
-    return IRISDLSS_OK;
+    return SIRIS_OK;
 }
 
-IRISDLSS_API void irisdlss_debug_capture(int32_t frames, const wchar_t* dir) {
+SIRIS_API void siris_debug_capture(int32_t frames, const wchar_t* dir) {
     g_capture.remaining = frames;
     g_capture.frame = 0;
     g_capture.dir = dir;
 }
 
-IRISDLSS_API void irisdlss_presenter_stats(float stats[IRISDLSS_STATS_COUNT]) {
+SIRIS_API void siris_presenter_stats(float stats[SIRIS_STATS_COUNT]) {
     stats[0] = g_present.fps;
     stats[1] = static_cast<float>(g_present.fgFactor);
     stats[2] = g_present.threadFailed ? 1.0f : 0.0f;
@@ -2105,15 +2105,15 @@ IRISDLSS_API void irisdlss_presenter_stats(float stats[IRISDLSS_STATS_COUNT]) {
     stats[8] = g_present.lowFps;
 }
 
-IRISDLSS_API void irisdlss_shutdown() {
+SIRIS_API void siris_shutdown() {
     if (!g_vk.device) {
         return;
     }
     if (g_vk.ngxInitialized) {
-        irisdlss_presenter_destroy();
+        siris_presenter_destroy();
         // The game already waited for its queue; nothing else uses the device any more.
         g_vk.deviceWaitIdle(g_vk.device);
-        irisdlss_destroy_resources();
+        siris_destroy_resources();
         releaseRetired(true);
         if (g_vk.capabilities) {
             NVSDK_NGX_VULKAN_DestroyParameters(g_vk.capabilities);

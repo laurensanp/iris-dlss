@@ -1,0 +1,34 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.siris.mixin",
+  "plugin": "com.siris.LunarCompat",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "CameraMixin",
+    "GameRendererMixin",
+    "HudMixin",
+    "LevelExtractorMixin",
+    "MinecraftMixin",
+    "StagedVertexBufferPoolMixin",
+    "DebugEntrySystemSpecsMixin",
+    "DevTestWorldMixin",
+    "PreferredGraphicsApiMixin",
+    "VideoSettingsScreenMixin",
+    "VitrailDitherMixin",
+    "VitrailJoinReloadMixin",
+    "VitrailRenderScaleMixin",
+    "VulkanBackendMixin",
+    "VulkanCommandEncoderAccessor",
+    "VulkanCommandEncoderMixin",
+    "VulkanConstMixin",
+    "VulkanDeviceMixin",
+    "VulkanGpuSamplerMixin",
+    "VulkanGpuSurfaceMixin",
+    "VulkanInstanceMixin",
+    "WWaypointsOverlayMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

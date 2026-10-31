@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src=".github/assets/pyraxis-icon.svg" width="128" height="128" alt="PYRAXIS icon">
+<img src=".github/assets/siris-icon.svg" width="128" height="128" alt="SIRIS icon">
 
-# PYRAXIS
+# SIRIS
 
 **Redefining Minecraft Rendering.**
 
@@ -22,8 +22,8 @@ game's own Vulkan renderer, together with **shader packs on Vulkan** through
 Status: **experimental**, personal project, Windows + NVIDIA only. Tested on an RTX 4060 Ti (driver 617,
 Windows 11) with Solas 3.8. Bug reports welcome in the [issues](https://github.com/laurensanp/pyraxis-render/issues).
 
-The project was called *Iris DLSS Bridge*; jar, config file and log lines keep the old `iris-dlss` name so
-existing installs keep working. Until 0.6.0 shader packs ran through an own Vulkan port of Iris
+The project was called *Iris DLSS Bridge* (`iris-dlss`), then *PYRAXIS*; jar, config file and log lines are now
+named `siris` too (an old `config/iris-dlss.properties` is taken over on the first start). Until 0.6.0 shader packs ran through an own Vulkan port of Iris
 ([iris-vulkan](https://github.com/laurensanp/iris-vulkan), archived); Vitrail replaces it.
 
 ## Contents
@@ -54,7 +54,7 @@ Mods, all in `.minecraft/mods/` (or the Lunar profile's `mods/`):
 
 | Mod | Where from | Needed for |
 |---|---|---|
-| `iris-dlss-<version>+mc26.3.jar` (this mod, NVIDIA's DLSS files inside) | [Releases](https://github.com/laurensanp/pyraxis-render/releases) | DLSS SR + FG |
+| `siris-<version>+mc26.3.jar` (this mod, NVIDIA's DLSS files inside) | [Releases](https://github.com/laurensanp/pyraxis-render/releases) | DLSS SR + FG |
 | [Sodium](https://modrinth.com/mod/sodium) 0.9.x for 26.3 | Modrinth | the settings pages, Vitrail |
 | [Vitrail](https://modrinth.com/mod/vitrail-shaders) for 26.3 (tested: 0.13.0-beta) | Modrinth | shader packs on Vulkan |
 | [Fabric API](https://modrinth.com/mod/fabric-api) | Modrinth | Vitrail |
@@ -68,15 +68,16 @@ tested here.
 ## Install (players)
 
 1. Install Fabric Loader for Minecraft 26.3.
-2. Put the mods from the table above into `mods/`. Remove the old `iris-fabric-vulkan+mc26.3.jar` if you
-   have it.
+2. Put the mods from the table above into `mods/`. Remove the old `iris-fabric-vulkan+mc26.3.jar` and
+   `iris-dlss-*.jar` (this mod's old name) if you have them.
 3. Put a shader pack (zip) into `shaderpacks/`.
 4. Start the game. It starts on **Vulkan** while DLSS is on (the "Graphics API" option is overridden).
 5. Press **`I`** for Vitrail's shader pack screen and pick the pack (`K` toggles shaders, `R` reloads).
    Vitrail remembers it in `vitrail/pack.txt`.
 
 Updating: close the game, replace the jars, start again. Your settings stay in
-`config/iris-dlss.properties`; the pack's settings in `shaderpacks/<pack>.txt`.
+`config/siris.properties`; the pack's settings in `shaderpacks/<pack>.txt`. Coming from an `iris-dlss-*.jar`:
+remove it (the new jar has another name), its config is taken over, its `iris-dlss/` folder can be deleted.
 
 ## Lunar Client
 
@@ -84,7 +85,7 @@ Works in Lunar Client profiles that run Fabric for 26.3 (put the jars into the p
 folder while the game is closed; Lunar ships its own Sodium, Fabric API and Mod Menu, keep those).
 
 Since 0.7.2 the mod handles Lunar's conflicts itself when the game starts (nothing to set up, also in a
-new Lunar profile); `lunarCompat=false` in `config/iris-dlss.properties` turns that off:
+new Lunar profile); `lunarCompat=false` in `config/siris.properties` turns that off:
 
 * **Lunar's "Multi-Threaded Rendering" is turned off** in the active settings profile
   (`%USERPROFILE%\.lunarclient\settings\game\<profile>\performance.json`, `"decoupledPresent":false`) before
@@ -110,7 +111,7 @@ notice in game when Java has less than 4 GB, or when its memory stays nearly ful
 
 ## Settings
 
-Video Settings → **DLSS** (Sodium's settings screen, two pages), or Mod Menu → PYRAXIS. Changes
+Video Settings → **DLSS** (Sodium's settings screen, two pages), or Mod Menu → SIRIS. Changes
 apply immediately.
 
 | Setting | What it does |
@@ -188,20 +189,20 @@ runs on the PC.
 ## Troubleshooting
 
 * **"DLSS: unavailable (…)"** in the settings or on F3: the reason is in brackets; full details in
-  `logs/latest.log` (search for `Iris DLSS`).
+  `logs/latest.log` (search for `SIRIS`).
 * **Frame Generation stays off / "Presenter starting"**: Lunar's Multi-Threaded Rendering was turned on during
   this session (it is off again after a restart, see [Lunar Client](#lunar-client)), or
   an RTX 20/30 card (`NVSDK_NGX_Result_FAIL_UnableToInitializeFeature` in the log is expected there).
 * **Shader pack doesn't show**: search the log for `(Vitrail)` lines with `did not compile`; see the
   Solas notes above. Vitrail's shader screen (`I`) also shows load errors.
-* **Back to OpenGL** (e.g. to compare): set `enabled=false` in `config/iris-dlss.properties` and
+* **Back to OpenGL** (e.g. to compare): set `enabled=false` in `config/siris.properties` and
   `preferredGraphicsBackend:"opengl"` in `options.txt` (Vitrail additionally keeps its own choice in
   `vitrail/graphics-api.txt`).
-* **Finding frame drops**: set `diagnosticRecording=true` in `config/iris-dlss.properties` (game closed), play
+* **Finding frame drops**: set `diagnosticRecording=true` in `config/siris.properties` (game closed), play
   until it drops, quit normally. A Java Flight Recording of the last 10 minutes lands in
-  `iris-dlss/recordings/fps-<time>.jfr` (open it with JDK Mission Control or `jfr print`); attach it to an issue.
+  `siris/recordings/fps-<time>.jfr` (open it with JDK Mission Control or `jfr print`); attach it to an issue.
   Set it back to `false` afterwards. Works in Lunar too, which has no JVM argument field.
-* Settings file reference: `config/iris-dlss.properties` (commented, written on every start).
+* Settings file reference: `config/siris.properties` (commented, written on every start).
 
 ## Build from source (developers)
 
@@ -223,10 +224,10 @@ git clone https://github.com/laurensanp/pyraxis-render.git
 cd pyraxis-render\dlss-bridge
 powershell -ExecutionPolicy Bypass -File fetch-deps.ps1   :: NVIDIA DLSS SDK + Vulkan headers (from GitHub)
 set JAVA_HOME=C:\path\to\jdk-25
-build.bat                                                 :: out\irisdlss.dll, out\dlss_probe.exe
+build.bat                                                 :: out\siris.dll, out\dlss_probe.exe
 out\dlss_probe.exe                                        :: optional: reports SR / FG support without the game
 cd ..\mod
-gradlew build                                             :: build\libs\iris-dlss-*.jar (natives included)
+gradlew build                                             :: build\libs\siris-*.jar (natives included)
 cd ..\voxy-vulkan
 gradlew build                                             :: build\libs\voxy-vulkan-*.jar (optional)
 ```
@@ -250,8 +251,8 @@ gradlew runClient -PtestWorld=vulkan-test
 joins (first time: creates, fixed seed) a test world, saves `run/screenshots/dlss-test.png` after 200
 ticks and quits. Options: `-PtestCommands="time set 1500;weather clear;tp @p -36 84 18 -90 20"` (chat
 commands after joining), `-PtestPitch=40`, `-PtestTicks=900`, `-PwindowSize=1920x1080`, `-PdlssBenchmark`
-(cycles DLSS modes, logs fps as `Iris DLSS benchmark:`), `-PdlssOff` (DLSS off, still on Vulkan),
-`-PdlssScreen=mod|sodium|sodium2` (opens the settings), `-PdlssDebug=spin|walk` (camera motion + Frame Generation frame capture into `run/iris-dlss/captures`).
+(cycles DLSS modes, logs fps as `SIRIS benchmark:`), `-PdlssOff` (DLSS off, still on Vulkan),
+`-PdlssScreen=mod|sodium|sodium2` (opens the settings), `-PdlssDebug=spin|walk` (camera motion + Frame Generation frame capture into `run/siris/captures`).
 Look at the screenshot. If Gradle says "Could not connect to the Gradle daemon", run `gradlew --stop` and
 try again.
 
@@ -265,7 +266,7 @@ More background for contributors: [`CLAUDE.md`](CLAUDE.md) (status, design, test
 ## How it works
 
 ```
-Minecraft (RenderPearl Vulkan backend)                 dlss-bridge (irisdlss.dll, NGX)
+Minecraft (RenderPearl Vulkan backend)                 dlss-bridge (siris.dll, NGX)
 ──────────────────────────────────────                 ────────────────────────────────
 vkCreateInstance / vkCreateDevice ───────────────────▶ adds NGX + DLSS-G extensions, features,
                                                         a presenter queue, an optical-flow queue
@@ -295,7 +296,7 @@ submit signals a timeline semaphore ──────────────�
 | Path | What |
 |------|------|
 | `dlss-bridge/src/bridge.cpp` | device-creation patching, NGX init, DLSS SR, presenter + DLSS-G |
-| `dlss-bridge/src/jni.cpp` | JNI for `com.irisdlss.DlssNative` |
+| `dlss-bridge/src/jni.cpp` | JNI for `com.siris.DlssNative` |
 | `dlss-bridge/src/probe.cpp` | `dlss_probe.exe`: a tiny Vulkan "game" running SR, FG and the presenter |
 | `mod/.../DlssUpscaler.java` | jitter, motion-vector + sharpen pipelines, SR call, FG inputs |
 | `mod/.../VulkanPresenter.java` | hands the finished frame to the bridge's presenter |

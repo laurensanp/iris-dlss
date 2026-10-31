@@ -33,7 +33,7 @@ struct Image {
     uint32_t width = 0;
     uint32_t height = 0;
 
-    IrisDlssImage describe() const {
+    SirisImage describe() const {
         return {reinterpret_cast<uint64_t>(image), reinterpret_cast<uint64_t>(view), format, width, height};
     }
 };
@@ -160,7 +160,7 @@ bool submit(Frame& frame, VkSemaphore timeline = VK_NULL_HANDLE, uint64_t value 
     }
     vkWaitForFences(device, 1, &frame.fence, VK_TRUE, UINT64_MAX);
     vkResetFences(device, 1, &frame.fence);
-    irisdlss_frame_submitted();
+    siris_frame_submitted();
     return true;
 }
 
@@ -172,14 +172,14 @@ bool createVulkan() {
     }
     gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader, "vkGetInstanceProcAddr"));
     VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    app.pApplicationName = "Iris DLSS probe";
+    app.pApplicationName = "SIRIS probe";
     app.apiVersion = VK_API_VERSION_1_2;
     const char* instanceExts[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
     VkInstanceCreateInfo instanceInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instanceInfo.pApplicationInfo = &app;
     instanceInfo.enabledExtensionCount = 2;
     instanceInfo.ppEnabledExtensionNames = instanceExts;
-    VkResult result = static_cast<VkResult>(irisdlss_create_instance(reinterpret_cast<uint64_t>(gipa), &instanceInfo,
+    VkResult result = static_cast<VkResult>(siris_create_instance(reinterpret_cast<uint64_t>(gipa), &instanceInfo,
         nullptr, &instance));
     if (result != VK_SUCCESS) {
         std::printf("create_instance=%d\n", result);
@@ -229,9 +229,9 @@ bool createVulkan() {
     deviceInfo.pQueueCreateInfos = &queueInfo;
     deviceInfo.enabledExtensionCount = 1;
     deviceInfo.ppEnabledExtensionNames = deviceExts;
-    result = static_cast<VkResult>(irisdlss_create_device(reinterpret_cast<uint64_t>(gipa),
+    result = static_cast<VkResult>(siris_create_device(reinterpret_cast<uint64_t>(gipa),
         reinterpret_cast<uint64_t>(instance), reinterpret_cast<uint64_t>(physical), &deviceInfo, nullptr, &device));
-    std::printf("create_device=%d %s\n", result, irisdlss_last_message());
+    std::printf("create_device=%d %s\n", result, siris_last_message());
     if (result != VK_SUCCESS) {
         return false;
     }
@@ -258,26 +258,26 @@ bool createFrame(Frame& frame) {
 }
 
 void fgParams(float* params, uint32_t renderWidth, uint32_t renderHeight, uint32_t w, uint32_t h, bool reset) {
-    for (int i = 0; i < IRISDLSS_FG_PARAM_COUNT; i++) {
+    for (int i = 0; i < SIRIS_FG_PARAM_COUNT; i++) {
         params[i] = 0.0f;
     }
     for (int i = 0; i < 4; i++) {
-        params[IRISDLSS_FG_VIEW_TO_CLIP + i * 5] = 1.0f;
-        params[IRISDLSS_FG_CLIP_TO_VIEW + i * 5] = 1.0f;
-        params[IRISDLSS_FG_CLIP_TO_PREV_CLIP + i * 5] = 1.0f;
-        params[IRISDLSS_FG_PREV_CLIP_TO_CLIP + i * 5] = 1.0f;
+        params[SIRIS_FG_VIEW_TO_CLIP + i * 5] = 1.0f;
+        params[SIRIS_FG_CLIP_TO_VIEW + i * 5] = 1.0f;
+        params[SIRIS_FG_CLIP_TO_PREV_CLIP + i * 5] = 1.0f;
+        params[SIRIS_FG_PREV_CLIP_TO_CLIP + i * 5] = 1.0f;
     }
-    params[IRISDLSS_FG_MVEC_SCALE] = 1.0f / renderWidth;
-    params[IRISDLSS_FG_MVEC_SCALE + 1] = 1.0f / renderHeight;
-    params[IRISDLSS_FG_CAMERA_UP + 1] = 1.0f;
-    params[IRISDLSS_FG_CAMERA_RIGHT] = 1.0f;
-    params[IRISDLSS_FG_CAMERA_FWD + 2] = -1.0f;
-    params[IRISDLSS_FG_NEAR] = 0.05f;
-    params[IRISDLSS_FG_FAR] = 1000.0f;
-    params[IRISDLSS_FG_FOV] = 1.2f;
-    params[IRISDLSS_FG_ASPECT] = static_cast<float>(w) / h;
-    params[IRISDLSS_FG_RESET] = reset ? 1.0f : 0.0f;
-    params[IRISDLSS_FG_DEPTH_INVERTED] = 1.0f;
+    params[SIRIS_FG_MVEC_SCALE] = 1.0f / renderWidth;
+    params[SIRIS_FG_MVEC_SCALE + 1] = 1.0f / renderHeight;
+    params[SIRIS_FG_CAMERA_UP + 1] = 1.0f;
+    params[SIRIS_FG_CAMERA_RIGHT] = 1.0f;
+    params[SIRIS_FG_CAMERA_FWD + 2] = -1.0f;
+    params[SIRIS_FG_NEAR] = 0.05f;
+    params[SIRIS_FG_FAR] = 1000.0f;
+    params[SIRIS_FG_FOV] = 1.2f;
+    params[SIRIS_FG_ASPECT] = static_cast<float>(w) / h;
+    params[SIRIS_FG_RESET] = reset ? 1.0f : 0.0f;
+    params[SIRIS_FG_DEPTH_INVERTED] = 1.0f;
 }
 
 }  // namespace
@@ -288,19 +288,19 @@ int wmain(int argc, wchar_t** argv) {
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
     std::wstring dir(exePath);
     dir = dir.substr(0, dir.find_last_of(L"\\/"));
-    irisdlss_set_data_path(dir.c_str());
+    siris_set_data_path(dir.c_str());
     if (!createVulkan()) {
         return 1;
     }
-    int32_t status = irisdlss_init();
-    std::printf("init=%d %s\n", status, irisdlss_last_message());
+    int32_t status = siris_init();
+    std::printf("init=%d %s\n", status, siris_last_message());
     int failures = 0;
-    if (status == IRISDLSS_OK) {
+    if (status == SIRIS_OK) {
         const char* names[] = {"Performance", "Balanced", "Quality", "UltraPerformance", "UltraQuality", "DLAA"};
         for (int quality = 0; quality <= 5; quality++) {
             uint32_t w = 0, h = 0;
             float sharpness = 0;
-            if (irisdlss_optimal_settings(1920, 1080, quality, &w, &h, &sharpness) == 0) {
+            if (siris_optimal_settings(1920, 1080, quality, &w, &h, &sharpness) == 0) {
                 std::printf("  %-16s 1920x1080 <- %ux%u\n", names[quality], w, h);
             }
         }
@@ -309,9 +309,9 @@ int wmain(int argc, wchar_t** argv) {
         WNDCLASSW wc{};
         wc.lpfnWndProc = DefWindowProcW;
         wc.hInstance = GetModuleHandleW(nullptr);
-        wc.lpszClassName = L"IrisDlssProbe";
+        wc.lpszClassName = L"SirisProbe";
         RegisterClassW(&wc);
-        HWND window = CreateWindowW(L"IrisDlssProbe", L"Iris DLSS probe", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 100, 100,
+        HWND window = CreateWindowW(L"SirisProbe", L"SIRIS probe", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 100, 100,
             1920 / 2, 1080 / 2, nullptr, nullptr, wc.hInstance, nullptr);
         RECT rect;
         GetClientRect(window, &rect);
@@ -334,35 +334,35 @@ int wmain(int argc, wchar_t** argv) {
                 toGeneral(cmd, *image);
             }
             clearColor(cmd, motion, 0.0f, 0.0f, 0.0f);
-            status = irisdlss_create_resources(reinterpret_cast<uint64_t>(cmd), rw, rh, w, h, 2, 1, 11);
-            std::printf("create_resources=%d %s\n", status, irisdlss_last_message());
+            status = siris_create_resources(reinterpret_cast<uint64_t>(cmd), rw, rh, w, h, 2, 1, 11);
+            std::printf("create_resources=%d %s\n", status, siris_last_message());
             submit(frame);
         }
-        if (ok && status == IRISDLSS_OK) {
-            status = irisdlss_presenter_create(reinterpret_cast<uint64_t>(window), w, h, vsync ? 1 : 0);
-            std::printf("presenter_create=%d %s\n", status, irisdlss_last_message());
-            VkSemaphore timeline = reinterpret_cast<VkSemaphore>(irisdlss_presenter_timeline());
-            float params[IRISDLSS_FG_PARAM_COUNT];
-            for (int i = 0; i < 240 && status == IRISDLSS_OK; i++) {
+        if (ok && status == SIRIS_OK) {
+            status = siris_presenter_create(reinterpret_cast<uint64_t>(window), w, h, vsync ? 1 : 0);
+            std::printf("presenter_create=%d %s\n", status, siris_last_message());
+            VkSemaphore timeline = reinterpret_cast<VkSemaphore>(siris_presenter_timeline());
+            float params[SIRIS_FG_PARAM_COUNT];
+            for (int i = 0; i < 240 && status == SIRIS_OK; i++) {
                 MSG msg;
                 while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
                     DispatchMessageW(&msg);
                 }
-                irisdlss_presenter_frame_start();
+                siris_presenter_frame_start();
                 VkCommandBuffer cmd = begin(frame);
                 float t = i / 240.0f;
                 clearColor(cmd, color, t, 0.3f, 1.0f - t);
-                IrisDlssImage c = color.describe(), d = depth.describe(), m = motion.describe(), o = output.describe();
-                int32_t evaluated = irisdlss_evaluate(reinterpret_cast<uint64_t>(cmd), &c, &d, &m, &o, 0.0f, 0.0f,
+                SirisImage c = color.describe(), d = depth.describe(), m = motion.describe(), o = output.describe();
+                int32_t evaluated = siris_evaluate(reinterpret_cast<uint64_t>(cmd), &c, &d, &m, &o, 0.0f, 0.0f,
                     1.0f, 1.0f, i == 0);
-                if (evaluated != IRISDLSS_OK && failures++ < 3) {
-                    std::printf("  evaluate frame %d: %s\n", i, irisdlss_last_message());
+                if (evaluated != SIRIS_OK && failures++ < 3) {
+                    std::printf("  evaluate frame %d: %s\n", i, siris_last_message());
                 }
                 fgParams(params, rw, rh, w, h, i == 0);
                 uint64_t value = 0;
-                int32_t presented = irisdlss_present(reinterpret_cast<uint64_t>(cmd), &o, &d, &m, &o, params, &value);
-                if (presented != IRISDLSS_OK && failures++ < 3) {
-                    std::printf("  present frame %d: %s\n", i, irisdlss_last_message());
+                int32_t presented = siris_present(reinterpret_cast<uint64_t>(cmd), &o, &d, &m, &o, params, &value);
+                if (presented != SIRIS_OK && failures++ < 3) {
+                    std::printf("  present frame %d: %s\n", i, siris_last_message());
                 }
                 if (!submit(frame, value ? timeline : VK_NULL_HANDLE, value)) {
                     std::printf("  submit failed at frame %d\n", i);
@@ -372,17 +372,17 @@ int wmain(int argc, wchar_t** argv) {
                     Sleep(8);
                 }
             }
-            float stats[IRISDLSS_STATS_COUNT];
-            irisdlss_presenter_stats(stats);
+            float stats[SIRIS_STATS_COUNT];
+            siris_presenter_stats(stats);
             std::printf("presented fps=%.1f (rendered %.1f) frameGeneration=%d threadError=%d %s\n", stats[0],
-                stats[3], int(stats[1]), int(stats[2]), irisdlss_last_message());
+                stats[3], int(stats[1]), int(stats[2]), siris_last_message());
             std::printf("pacing: %.2f ms between frames, jitter %.2f ms, worst %.2f ms, latency %.2f ms\n", stats[4],
                 stats[5], stats[6], stats[7]);
-            irisdlss_presenter_destroy();
+            siris_presenter_destroy();
         }
         DEVICE_FN(vkDeviceWaitIdle);
         vkDeviceWaitIdle(device);
-        irisdlss_shutdown();
+        siris_shutdown();
         for (Image* image : {&color, &depth, &motion, &output}) {
             if (image->image) destroyImage(*image);
         }
@@ -392,6 +392,6 @@ int wmain(int argc, wchar_t** argv) {
     auto destroyInstance = reinterpret_cast<PFN_vkDestroyInstance>(gipa(instance, "vkDestroyInstance"));
     destroyDevice(device, nullptr);
     destroyInstance(instance, nullptr);
-    std::printf("%s\n", status == IRISDLSS_OK && failures == 0 ? "PROBE OK" : "PROBE FAILED");
-    return status == IRISDLSS_OK && failures == 0 ? 0 : 1;
+    std::printf("%s\n", status == SIRIS_OK && failures == 0 ? "PROBE OK" : "PROBE FAILED");
+    return status == SIRIS_OK && failures == 0 ? 0 : 1;
 }

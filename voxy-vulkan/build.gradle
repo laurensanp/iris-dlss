@@ -3,7 +3,7 @@ plugins {
 }
 
 version = "0.1.1+mc26.3"
-group = "com.irisdlss"
+group = "com.siris"
 
 dependencies {
 	minecraft "com.mojang:minecraft:26.3"

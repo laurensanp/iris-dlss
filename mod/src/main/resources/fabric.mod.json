@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "iris-dlss",
+  "id": "siris",
   "version": "${version}",
-  "name": "PYRAXIS",
+  "name": "SIRIS",
   "description": "NVIDIA DLSS Super Resolution and Frame Generation for Minecraft 26.3, integrated with the game's Vulkan renderer and Vitrail shader packs.",
   "authors": [
     "laurensanp"
@@ -12,21 +12,21 @@
     "issues": "https://github.com/laurensanp/pyraxis-render/issues"
   },
   "license": "MIT",
-  "icon": "assets/iris-dlss/icon.png",
+  "icon": "assets/siris/icon.png",
   "environment": "client",
   "entrypoints": {
     "client": [
-      "com.irisdlss.IrisDlss"
+      "com.siris.Siris"
     ],
     "sodium:config_api_user": [
-      "com.irisdlss.SodiumOptions"
+      "com.siris.SodiumOptions"
     ],
     "modmenu": [
-      "com.irisdlss.ModMenuIntegration"
+      "com.siris.ModMenuIntegration"
     ]
   },
   "mixins": [
-    "iris-dlss.mixins.json"
+    "siris.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.20.1",

@@ -1,6 +1,6 @@
-# Iris DLSS Bridge
+# SIRIS
 
-One repository (github.com/laurensanp/iris-dlss, MIT; GitHub renamed it to laurensanp/pyraxis-render, the old URL redirects): a Fabric mod for Minecraft 26.3 that runs DLSS Super
+One repository (github.com/laurensanp/pyraxis-render, MIT; was laurensanp/iris-dlss, the old URL redirects; the user will rename it for SIRIS later): a Fabric mod for Minecraft 26.3 that runs DLSS Super
 Resolution + Frame Generation inside the game's own Vulkan renderer (RenderPearl). Shader packs come from
 **Vitrail** (separate mod, modrinth `vitrail-shaders`, github avpbynf/Vitrail-Shaders, LGPL-3.0, not ours,
 never commit or ship it). `README.md` lists everything a player or developer needs and where it comes from.
@@ -9,7 +9,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 
 | Path | What |
 |---|---|
-| `dlss-bridge/` | native C++ bridge (`irisdlss.dll`): NGX, DLSS SR, presenter + DLSS-G, `dlss_probe.exe` |
+| `dlss-bridge/` | native C++ bridge (`siris.dll`): NGX, DLSS SR, presenter + DLSS-G, `dlss_probe.exe` |
 | `mod/` | the Fabric mod (Java), packs the bridge + NVIDIA DLLs into its jar |
 | `voxy-vulkan/` | separate mod: Voxy LODs drawn on Vulkan (paused) |
 | `testpacks/` | own small GLSL test packs (from the old Iris port) |
@@ -23,6 +23,14 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   Replaced by Vitrail on 2026-10-27 (5-10 % faster, same picture, maintained by others); the fork's GitHub repo
   is archived, the local clone and the submodule are gone. Releases iris-dlss v0.5.0/v0.6.0 and iris-vulkan
   vulkan-v0.1.0/v0.2.0 belong to that era.
+- Names: Iris DLSS Bridge (`iris-dlss`, up to 0.7.x) -> PYRAXIS (display name only, 1.1.0/1.1.1; code, jar, config
+  and logs stayed `iris-dlss`) -> **SIRIS** (2026-10-31, user's wish, everywhere): mod id `siris`, package
+  `com.siris` (main class `Siris`), `siris.mixins.json`, `assets/siris/icon.png`, `.github/assets/siris-icon.*`,
+  `siris.dll` (exports `siris_*`, JNI `Java_com_siris_*`, macros `SIRIS_*`), `config/siris.properties`
+  (`DlssConfig.configFile()` moves an old `iris-dlss.properties` over once), game-dir folder `siris/`, dev
+  properties `-Dsiris.*`, log prefix `SIRIS:`, jar `siris-<version>`. Social preview: title rebuilt from the
+  PYRAXIS image's own S/I/R glyphs. Old releases/jars keep their names. The bridge must be rebuilt
+  (`build.bat`) for the new DLL/JNI names. Lunar: remove `iris-dlss-*.jar` (other file name, else both load).
 - History of iris-dlss keeps Kiwious' Claude co-author lines (user decided not to rewrite).
 
 ## Status (2026-10-30)
@@ -30,7 +38,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 - **DLSS with Vitrail works** (Vitrail 0.13.0-beta, Solas 3.8, verified with screenshots, an FG capture and a
   benchmark): Vitrail draws the world into the main target (reverse-Z depth kept), takes the projection the game
   draws with (our jitter included) and runs composite/final before our upscale at `FogRenderer.endFrame`.
-  iris-dlss changes for it: `VitrailRenderScaleMixin` (`@Pseudo`, Vitrail's own FSR "Render Scale" reads 100 %
+  SIRIS changes for it: `VitrailRenderScaleMixin` (`@Pseudo`, Vitrail's own FSR "Render Scale" reads 100 %
   while DLSS runs; logged once), `ShaderPackTweaks` reads `vitrail/pack.txt` (`pack=`, `enabled=`,
   `renderscale=`, `shadowdistance=`, `shadowmapscale=`; old files: one bare word, `none` = off) and the shared
   `shaderpacks/<pack>.txt`. Pack screen: key `I`.
@@ -86,13 +94,13 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 - Lunar's "Multi-Threaded Rendering" (`decoupledPresent` in `~/.lunarclient/settings/game/<profile>/performance.json`)
   acquires/presents the swapchain itself; the mod detects it and keeps the game's output (no FG). Must be off
   (`{"version":38,"decoupledPresent":false}`). Presenting from both swapchains stalls in fullscreen.
-- Since 0.7.2 `LunarCompat` (mixin config plugin of iris-dlss, `acceptTargets` = after all configs are prepared,
+- Since 0.7.2 `LunarCompat` (mixin config plugin of SIRIS, `acceptTargets` = after all configs are prepared,
   before any mixin applies) does both Lunar fixes itself: sets `decoupledPresent=false` in the active profile
   (`profile_manager.json` `active`; Lunar reads the file ~10 s later, after `[LC] Starting Lunar client`) and
   removes the @Redirect from Vitrail's `VulkanCommandEncoderMixin.vitrail$afterPass` class node (MixinTransformer
   .processor -> configs -> MixinInfo.state.classNode, same fields in Lunar's Mixin 0.8.x in genesis.jar) when another
   mixin redirects the barrier or Lunar is detected (`mixins.ichor.*` configs / game dir in `.lunarclient`).
-  `lunarCompat=false` turns it off. Dev test: `-Diris-dlss.forceLunarCompat=true -Diris-dlss.lunarDir=<fake dir>`
+  `lunarCompat=false` turns it off. Dev test: `-Dsiris.forceLunarCompat=true -Dsiris.lunarDir=<fake dir>`
   via JAVA_TOOL_OPTIONS, `-Dmixin.debug.export=true` and check `run/.mixin.out/.../VulkanCommandEncoder.class`.
   Verified in dev and in Lunar 2026-10-30 (fresh settings profile `DLSS`: performance.json created with
   `decoupledPresent:false`, no Vitrail crash with the plain jar, presenter output, FG x2, Solas draws). Lunar
@@ -139,19 +147,19 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 - Gradle needs **JDK 25**: `JAVA_HOME=~/.jdks/jdk-25.0.4.1+1`. Use `--no-daemon`; "Could not connect to the Gradle
   daemon" happens often, `gradlew --stop` and rerun.
 - Bridge: `dlss-bridge/fetch-deps.ps1`, `dlss-bridge/build.bat` (MSVC 2022, Build Tools are enough). Mod:
-  `cd mod && gradlew build` -> `mod/build/libs/iris-dlss-*.jar`. voxy-vulkan: `cd voxy-vulkan && gradlew build`.
+  `cd mod && gradlew build` -> `mod/build/libs/siris-*.jar`. voxy-vulkan: `cd voxy-vulkan && gradlew build`.
 - Test loop: `cd mod && gradlew runClient -PtestWorld=vulkan-test` joins/creates the world, screenshot
   `mod/run/screenshots/dlss-test.png` after 200 ticks, quits (`DevTest`, `DevTestWorldMixin`). Options:
   `-PtestCommands="time set 1500;weather clear;tp @p -36 84 18 -90 20"` (tree/shadow view; `tp @p -36 82 18 180 8`
   = beach view), `-PtestPitch`, `-PtestTicks=600` (more for screenshots after loading), `-PwindowSize=1920x1080`,
-  `-PdlssBenchmark` (logs `Iris DLSS benchmark:` lines), `-PdlssOff`, `-PdlssDebug=spin|walk` (FG capture into
-  `mod/run/iris-dlss/captures`, only fires with Frame Generation). Look at the screenshot.
+  `-PdlssBenchmark` (logs `SIRIS benchmark:` lines), `-PdlssOff`, `-PdlssDebug=spin|walk` (FG capture into
+  `mod/run/siris/captures`, only fires with Frame Generation). Look at the screenshot.
 - Dev `options.txt`: `fullscreen:false` (else a focus change minimizes and caps at 10 fps),
   `inactivityFpsLimit:"minimized"` (else the 30 fps AFK limit hits benchmarks). Run benchmarks with nothing else
   loading the PC (±25 %). Logs written across midnight get lost (log roll), rerun.
 - Voxy dev test: move `mod/run/mods-voxy/*` (Voxy) plus voxy-vulkan's jar into `mod/run/mods`, no shader pack,
   one run at render distance 32 so Voxy ingests, then lower it. `-PtestTicks=400+` (meshing takes seconds).
-- OpenGL reference shot: `enabled=false` in `config/iris-dlss.properties` + `preferredGraphicsBackend:"opengl"` in
+- OpenGL reference shot: `enabled=false` in `config/siris.properties` + `preferredGraphicsBackend:"opengl"` in
   `options.txt` (Vitrail: `vitrail/graphics-api.txt`), then restore.
 
 ## DLSS notes
@@ -174,20 +182,20 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 - Grid on leaves/sand (2026-10-30): the old CAS sharpener amplified DLSS's faint 3-px (= 2 render px at 1.5x)
   residue ~9x (stripe metric 3.21 vs 0.37 without sharpening). Now RCAS (FSR 1, noise term halves the lobe), slider
   mapped through sqrt (35 % -> 0.59): stripes 0.24, edge strength 16.3 (native 18.7, old CAS 21.6 incl. grid).
-  Dither animation was ruled out (`-Diris-dlss.noDitherAnimation=true` gives the same grid with CAS).
+  Dither animation was ruled out (`-Dsiris.noDitherAnimation=true` gives the same grid with CAS).
 - Jitter sign (2026-10-31): NGX got +jitterX; the picture shook ±0.25 px horizontally at a still camera (user's Lunar
   F2 burst, then dev Custom 80 %: 8 testShots, floor rms 0.7-2.3 with +x vs 0.42-0.50 and no shift with -x; y sign made
   no difference). `DlssUpscaler.reportedJitterX()` now reports -jitterX (SR and FG params); config jitterSign* stay a
   diagnostic on top (1.0 = correct). User confirmed in Lunar.
 - Shaking for ~2 s after joining: history reset for 60 frames (new level) showed the raw jitter; jitter is now 0
   while `resetFrames > 0`.
-- FG smear at tree/block edges while turning (2026-10-30): reproduced with `-Diris-dlss.debugSpin=6` (6 deg per
+- FG smear at tree/block edges while turning (2026-10-30): reproduced with `-Dsiris.debugSpin=6` (6 deg per
   rendered frame, ~100 fps): only generated frames smear (real frames clean); at 1.5 deg/frame generated frames are
   clean. Inputs checked: MVs match the measured image shift (7.27 vs 7.3 render px), clipToPrevClip's depth column
   is (0,0,1,0) for a pure turn, camera vectors orthonormal/right-handed, FOV/aspect match. Pale tree "copies" in
-  slow turns are real fogged trees (same in `-Diris-dlss.bypass=true` raw frames, DLAA only). All presets alike.
-- Dev: `-Diris-dlss.testShots=N` (N screenshots on consecutive ticks), `-Diris-dlss.bypass=true` (DLAA: raw frame
-  instead of DLSS), `-Diris-dlss.debugSpin=deg` with `-PdlssDebug=still` (any spin speed), debugLog prints FG params.
+  slow turns are real fogged trees (same in `-Dsiris.bypass=true` raw frames, DLAA only). All presets alike.
+- Dev: `-Dsiris.testShots=N` (N screenshots on consecutive ticks), `-Dsiris.bypass=true` (DLAA: raw frame
+  instead of DLSS), `-Dsiris.debugSpin=deg` with `-PdlssDebug=still` (any spin speed), debugLog prints FG params.
 - Join hitch (Lunar `Pause - Unknown` 1.5 s + ~20 x 50-800 ms after joining): JFR showed Vitrail's
   `PackChoice.reloadIfTheWorldMoved` re-reading/compiling the whole pack because the registry stamp changed (only
   needed for block tags `%ns:path` in block.properties). `VitrailJoinReloadMixin` skips it (PackDefines.settle()
@@ -207,10 +215,10 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
   halfway (was ~6-12 px behind). wWaypoints' own placement drifts 3-10 px off its block away from the screen
   centre in real frames (own FOV math, e.g. flying FOV) = the "lag without presenter", not ours. Dev test:
   `wwp_add <x> <z> <y>` (client command; opens its list screen) or edit run/wwaypoints/.../minecraft_overworld.json
-  `pos`; `-Diris-dlss.captureTick=N` + `-PtestRepeat="tp @p ~ ~ ~0.15"` (strafe). Never commit/ship its jar.
+  `pos`; `-Dsiris.captureTick=N` + `-PtestRepeat="tp @p ~ ~ ~0.15"` (strafe). Never commit/ship its jar.
 - `MemoryCheck`: toast when max heap < 4 GB or heap >= 90 % for 3 checks 10 s apart.
 - Dev: `-PdlssDebug=still`, `-PcaptureAt=N`, `-PtestRepeat="cmd;cmd"` (every tick), JAVA_TOOL_OPTIONS
-  `-Diris-dlss.captureFrames=12`. Dev `options.txt` has `pauseOnLostFocus:false` (else the pause menu stops FG and
+  `-Dsiris.captureFrames=12`. Dev `options.txt` has `pauseOnLostFocus:false` (else the pause menu stops FG and
   the capture). Kill old test mobs first (`kill @e[type=!player]`), they persist in `vulkan-test`.
 - Benchmark costs (4060 Ti, 1080p): DLSS SR preset K ~2 ms, FG ~3 ms per rendered frame; E ~1 ms cheaper than K,
   L ~1.8 ms more, M ~0.9 ms more at Performance. Mode Custom (33-100 %) uses the closest NGX mode. Render-thread
@@ -225,7 +233,7 @@ Goal: shader packs (Solas) + DLSS SR/FG on Vulkan, in the user's Lunar Client. V
 
 ## Releases
 
-`"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jars> -R laurensanp/pyraxis-render --title "Iris DLSS Bridge
+`"C:\Program Files\GitHub CLI\gh.exe" release create <tag> <jars> -R laurensanp/pyraxis-render --title "SIRIS
 <version> (Minecraft 26.3)" --latest` (gh is logged in as laurensanp; up to 0.7.1 they were `--prerelease`). v0.7.0 (2026-10-27, first with Vitrail): `iris-dlss-0.7.0+mc26.3.jar` +
 `voxy-vulkan-0.1.1+mc26.3.jar`; Vitrail is never attached (link to Modrinth).
 v0.7.1 (2026-10-27): pacing without VSync, vertex buffer reuse, diagnosticRecording (same voxy-vulkan 0.1.1
