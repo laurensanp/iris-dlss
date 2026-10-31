@@ -6,10 +6,10 @@
 
 **Redefining Minecraft Rendering.**
 
-![Vulkan](https://img.shields.io/badge/Vulkan-AC162C?logo=vulkan&logoColor=white)
-![NVIDIA DLSS](https://img.shields.io/badge/NVIDIA-DLSS-76B900?logo=nvidia&logoColor=white)
-![Frame Generation](https://img.shields.io/badge/Frame-Generation-76B900?logo=nvidia&logoColor=white)
-![Vitrail](https://img.shields.io/badge/Vitrail-Shaders-7B61A8)
+![Vulkan](https://img.shields.io/badge/Vulkan-FF6A3D?logo=vulkan&logoColor=white)
+![NVIDIA DLSS](https://img.shields.io/badge/NVIDIA-DLSS-FF6A3D?logo=nvidia&logoColor=white)
+![Frame Generation](https://img.shields.io/badge/Frame-Generation-FF6A3D?logo=nvidia&logoColor=white)
+![Vitrail](https://img.shields.io/badge/Vitrail-Shaders-FF6A3D?logoColor=white)
 
 </div>
 

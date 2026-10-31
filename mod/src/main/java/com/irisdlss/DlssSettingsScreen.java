@@ -166,7 +166,7 @@ public class DlssSettingsScreen extends Screen {
         graphics.centeredText(this.font, DlssUpscaler.statusLine(), this.width / 2, 20, 0xFFA0A0A0);
         graphics.centeredText(this.font, VulkanPresenter.compactStatus(), this.width / 2, 30, 0xFFA0A0A0);
         for (Header header : this.headers) {
-            graphics.text(this.font, header.title(), this.left, header.y() + 2, 0xFF76B900, true);
+            graphics.text(this.font, header.title(), this.left, header.y() + 2, 0xFFFF6A3D, true);
             graphics.fill(this.left + this.font.width(header.title()) + 4, header.y() + 6, this.right + WIDTH,
                 header.y() + 7, 0x40FFFFFF);
         }

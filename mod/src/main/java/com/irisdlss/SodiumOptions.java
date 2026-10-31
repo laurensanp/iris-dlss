@@ -35,7 +35,8 @@ public class SodiumOptions implements ConfigEntryPoint {
     public void registerConfigLate(ConfigBuilder builder) {
         builder.registerOwnModOptions()
             .setName("DLSS")
-            .setColorTheme(builder.createColorTheme().setBaseThemeRGB(0xFF76B900))
+            .setColorTheme(builder.createColorTheme().setBaseThemeRGB(0xFFFF6A3D))
+            .setNonTintedIcon(id("icon.png"))
             .addPage(builder.createOptionPage()
                 .setName(text("Settings"))
                 .addOptionGroup(builder.createOptionGroup()
